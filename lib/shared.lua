@@ -1,6 +1,9 @@
 -- Shared utilities for the skills plugin hooks.
 -- Loaded by each hook via require("lib.name").
 
+local file = require("file")
+local json = require("json")
+
 local M = {}
 
 -- Resolve the skills CLI binary path from the mise data directory and declared version.

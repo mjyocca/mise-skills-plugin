@@ -14,6 +14,9 @@
 -- Limitation: mise calls this hook even during --dry-run, and cmd.exec runs normally.
 -- The hook cannot honor dry-run. This is a documented mise limitation.
 
+local cmd = require("cmd")
+local file = require("file")
+local log = require("log")
 local shared = require("lib.shared")
 
 -- The pinned CLI version. Must match the mise tool declaration.
@@ -46,12 +49,12 @@ function PLUGIN:PackageInstall(ctx)
 
       -- Construct the command. Values are passed via env, not shell interpolation.
       local source = group.url .. "#" .. group.ref
-      local cmd = string.format(
+      local command = string.format(
         "%q add %q --skill %q --global --agent codex --copy --yes --json",
         cli, source, skill_id
       )
 
-      local ok, stdout = pcall(cmd.exec, cmd, {
+      local ok, stdout = pcall(cmd.exec, command, {
         env = {
           DISABLE_TELEMETRY = "1",
           GIT_TERMINAL_PROMPT = "0",

@@ -7,6 +7,9 @@
 -- - Forced repair is not achievable via mise's native commands.
 -- - Reinstall at the new pin using the same logic as PackageInstall.
 
+local cmd = require("cmd")
+local file = require("file")
+local log = require("log")
 local shared = require("lib.shared")
 
 local CLI_VERSION = "1.7.6"
@@ -23,12 +26,12 @@ function PLUGIN:PackageUpgrade(ctx)
 
     log.info("Upgrade globally: " .. skill_id .. " to " .. url .. "#" .. pin)
 
-    local cmd = string.format(
+    local command = string.format(
       "%q add %q --skill %q --global --agent codex --copy --yes --json",
       cli, source, skill_id
     )
 
-    local ok, stdout = pcall(cmd.exec, cmd, {
+    local ok, stdout = pcall(cmd.exec, command, {
       env = {
         DISABLE_TELEMETRY = "1",
         GIT_TERMINAL_PROMPT = "0",

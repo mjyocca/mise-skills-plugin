@@ -8,6 +8,9 @@
 --   beyond the CLI's scope.
 -- - Only ever touches the packages in ctx.packages.
 
+local cmd = require("cmd")
+local file = require("file")
+local log = require("log")
 local shared = require("lib.shared")
 
 local CLI_VERSION = "1.7.6"
@@ -60,12 +63,12 @@ function PLUGIN:PackageUninstall(ctx)
       -- Invoke the CLI for removal.
       log.info("Remove globally: " .. skill_id)
 
-      local cmd = string.format(
+      local command = string.format(
         "%q remove %q --global --agent codex --yes",
         cli, skill_id
       )
 
-      local ok, stdout = pcall(cmd.exec, cmd, {
+      local ok, stdout = pcall(cmd.exec, command, {
         env = {
           DISABLE_TELEMETRY = "1",
         },
