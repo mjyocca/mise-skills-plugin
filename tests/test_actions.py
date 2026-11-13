@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -73,6 +74,37 @@ lock.write_text(json.dumps(data))
         self.install_files()
         self.action("apply")
         self.assertEqual(self.status()["skills"]["packages"][0]["installed_version"], PIN)
+
+    def test_apply_without_mise_data_dir_uses_xdg(self):
+        del self.env["MISE_DATA_DIR"]
+        self.action("apply")
+        self.assertEqual(self.status()["skills"]["packages"][0]["installed_version"], PIN)
+
+    def test_apply_without_data_overrides_uses_home(self):
+        original = Path(self.env.pop("MISE_DATA_DIR"))
+        del self.env["XDG_DATA_HOME"]
+        default = self.home / ".local/share/mise"
+        default.parent.mkdir(parents=True)
+        shutil.move(str(original), str(default))
+        self.action("apply")
+        self.assertEqual(self.status()["skills"]["packages"][0]["installed_version"], PIN)
+
+    def test_explicit_mise_data_dir_takes_precedence(self):
+        original = Path(self.env["MISE_DATA_DIR"])
+        override = self.root / "custom-mise-data"
+        shutil.move(str(original), str(override))
+        self.env["MISE_DATA_DIR"] = str(override)
+        self.action("apply")
+        self.assertEqual(self.status()["skills"]["packages"][0]["installed_version"], PIN)
+
+    def test_apply_restores_deleted_directory_with_existing_lock(self):
+        self.action("apply")
+        (self.target / "SKILL.md").unlink()
+        self.target.rmdir()
+        self.assertIn("demo", json.loads(self.lock.read_text())["skills"])
+        self.action("apply")
+        self.assertTrue((self.target / "SKILL.md").is_file())
+        self.assertEqual(len(self.calls()), 2)
 
     def test_upgrade_changed_pin(self):
         self.record(ref="b" * 40)

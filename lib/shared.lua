@@ -7,10 +7,20 @@ local json = require("json")
 local M = {}
 
 -- Resolve the skills CLI binary path from the mise data directory and declared version.
+-- Mise need not export MISE_DATA_DIR; mirror its Linux/macOS directory defaults.
 -- Mise shims do not work from hooks (S1); invoke the binary directly.
 function M.resolve_cli(data_dir, version)
   if not data_dir or data_dir == "" then
-    error("MISE_DATA_DIR is not set; cannot resolve the skills CLI")
+    local xdg = os.getenv("XDG_DATA_HOME")
+    if xdg and xdg ~= "" then
+      data_dir = xdg .. "/mise"
+    else
+      local home = os.getenv("HOME")
+      if not home or home == "" then
+        error("HOME is not set; cannot resolve the default mise data directory")
+      end
+      data_dir = home .. "/.local/share/mise"
+    end
   end
   if not version or version == "" then
     error("CLI version is not declared")
