@@ -1,0 +1,38 @@
+[tools]
+lua = "5.1.5"
+stylua = "2.6.0"
+python = "3.13.9"
+
+[tasks."deps:lua"]
+description = "Install pinned Lua test/lint tools into a project-local tree"
+run = [
+  "luarocks --tree .mise/rocks install busted 2.3.0",
+  "luarocks --tree .mise/rocks install luacheck 1.2.0",
+]
+
+[tasks."test:unit"]
+description = "Run Lua 5.1 unit tests (run deps:lua first)"
+run = ".mise/rocks/bin/busted"
+
+[tasks."test:integration"]
+description = "Run offline tests against mise's embedded Lua runtime"
+run = "python3 -B -m unittest discover -s tests -v"
+
+[tasks."test:compat"]
+description = "Opt-in network tests; set SKILLS_CLI_TEST_BIN to skills 1.7.6"
+run = "python3 -B -m unittest discover -s tests/compat -v"
+
+[tasks.test]
+depends = ["test:unit", "test:integration"]
+
+[tasks.fmt]
+run = "stylua metadata.lua hooks lib tests/unit .busted .luacheckrc"
+
+[tasks.lint]
+run = [
+  "stylua --check metadata.lua hooks lib tests/unit .busted .luacheckrc",
+  ".mise/rocks/bin/luacheck metadata.lua hooks lib tests/unit",
+]
+
+[tasks.check]
+depends = ["lint", "test"]

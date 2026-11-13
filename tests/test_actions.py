@@ -4,59 +4,21 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 
 from test_status import MISE, MiseFixture, PIN
 
 
 class PackageActionTests(MiseFixture):
-    def setUp(self):
-        super().setUp()
-        cli = Path(self.env["MISE_DATA_DIR"]) / "installs/npm-skills/1.7.6/node_modules/.bin/skills"
-        cli.parent.mkdir(parents=True)
-        cli.write_text(f"#!{sys.executable}\n" + '''
-import json
-import os
-from pathlib import Path
-import shutil
-import sys
-
-args = sys.argv[1:]
-home = Path(os.environ["HOME"])
-with (home / "calls.jsonl").open("a") as calls:
-    calls.write(json.dumps(args) + "\\n")
-assert os.environ["DISABLE_TELEMETRY"] == "1"
-lock = Path(os.environ["XDG_STATE_HOME"]) / "skills/.skill-lock.json"
-data = json.loads(lock.read_text()) if lock.exists() else {"version": 3, "skills": {}}
-if args[0] == "add":
-    assert os.environ["GIT_TERMINAL_PROMPT"] == "0"
-    assert args[2] == "--skill"
-    assert args[4:] == ["--global", "--agent", "codex", "--copy", "--yes", "--json"]
-    skill = args[3]
-    url, ref = args[1].rsplit("#", 1)
-    target = home / ".agents/skills" / skill
-    target.mkdir(parents=True, exist_ok=True)
-    (target / "SKILL.md").write_text("fixture\\n")
-    data["skills"][skill] = {"sourceUrl": url, "ref": ref}
-elif args[0] == "remove":
-    skill = args[1]
-    assert args[2:] == ["--global", "--agent", "codex", "--yes"]
-    shutil.rmtree(home / ".agents/skills" / skill)
-    del data["skills"][skill]
-else:
-    raise AssertionError(args)
-lock.parent.mkdir(parents=True, exist_ok=True)
-lock.write_text(json.dumps(data))
-''')
-        cli.chmod(0o755)
-        self.env["PATH"] = str(cli.parent) + ":" + self.env["PATH"]
-
-    def action(self, *args):
+    def action(self, *args, error=None):
         result = subprocess.run(
             [MISE, "bootstrap", "packages", *args], cwd=self.project,
             env=self.env, capture_output=True, text=True, timeout=30,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        if error:
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertIn(error, result.stderr)
+        else:
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def calls(self):
         path = self.home / "calls.jsonl"
@@ -66,6 +28,7 @@ lock.write_text(json.dumps(data))
         self.action("apply")
         self.assertEqual(self.status()["skills"]["packages"][0]["installed_version"], PIN)
         self.assertEqual(len(self.calls()), 1)
+        self.assertFalse((self.project / "injected").exists())
         self.action("apply")
         self.assertEqual(len(self.calls()), 1)
 
@@ -119,3 +82,85 @@ lock.write_text(json.dumps(data))
         self.assertFalse(self.target.exists())
         self.assertNotIn("demo", json.loads(self.lock.read_text())["skills"])
         self.assertEqual(self.calls()[-1][0], "remove")
+
+    def test_apply_dry_run_does_not_invoke_cli(self):
+        self.action("apply", "--dry-run")
+        self.assertEqual(self.calls(), [])
+        self.assertFalse(self.target.exists())
+        self.assertFalse(self.lock.exists())
+
+    def test_upgrade_dry_run_does_not_invoke_cli(self):
+        self.record(ref="b" * 40)
+        self.install_files()
+        before = self.lock.read_bytes()
+        self.action("upgrade", "--dry-run")
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.lock.read_bytes(), before)
+
+    def test_upgrade_current_pin_is_noop(self):
+        self.record()
+        self.install_files()
+        self.action("upgrade")
+        self.assertEqual(self.calls(), [])
+
+    def test_action_failure_is_reported(self):
+        self.env["SKILLS_TEST_FAIL"] = "1"
+        self.action("apply", error="fixture action failed")
+
+    def test_incompatible_cli_is_rejected_before_mutation(self):
+        self.env["SKILLS_TEST_VERSION"] = "9.0.0"
+        self.action("apply", error="Unsupported skills CLI version")
+        self.assertEqual(self.calls(), [])
+
+    def test_json_result_is_validated(self):
+        modes = {
+            "invalid": "Invalid skills add JSON",
+            "missing": "Missing skills add results",
+            "extra": "Unexpected or duplicate",
+            "duplicate": "Unexpected or duplicate",
+        }
+        for field, value in {
+            "status": "skipped", "source": "foreign/repo", "ref": "main",
+            "scope": "project", "mode": "symlink", "agents": ["codex"], "path": "/outside",
+        }.items():
+            modes[json.dumps({field: value})] = "Skills add result did not confirm"
+        for i, (mode, error) in enumerate(modes.items()):
+            with self.subTest(mode=mode):
+                self.declare(f"result-{i}")
+                self.env["SKILLS_TEST_RESULT"] = mode
+                self.action("apply", error=error)
+
+    def test_shell_substitution_in_pin_is_rejected(self):
+        (self.project / "mise.toml").write_text(
+            '[bootstrap.packages]\n"skills:example/skills/demo" = "$(touch injected)"\n'
+        )
+        self.action("apply", error="Expected a full 40-character")
+        self.assertFalse((self.project / "injected").exists())
+        self.assertEqual(self.calls(), [])
+
+    def test_same_source_is_batched(self):
+        self.declare("demo", "other")
+        self.action("apply")
+        self.assertEqual(len(self.calls()), 1)
+        self.assertEqual(set(self.calls()[0][3:5]), {"demo", "other"})
+
+    def test_unpinned_cli_selector_is_rejected_without_mutation(self):
+        self.declare("demo", "other")
+        self.action("apply", "skills:example/skills/demo", error="Expected a full 40-character")
+        self.assertEqual(self.calls(), [])
+        self.assertFalse(self.target.with_name("other").exists())
+
+    def test_prune_dry_run_does_not_invoke_remove(self):
+        self.action("apply")
+        self.declare()
+        before = self.lock.read_bytes()
+        self.action("prune", "--manager", "skills", "--dry-run")
+        self.assertEqual(len(self.calls()), 1)
+        self.assertEqual(self.lock.read_bytes(), before)
+
+    def test_shared_content_is_not_force_deleted(self):
+        self.action("apply")
+        self.declare()
+        self.env["SKILLS_TEST_RETAIN"] = "1"
+        self.action("prune", "--manager", "skills", error="CLI did not fully remove")
+        self.assertTrue(self.target.exists())

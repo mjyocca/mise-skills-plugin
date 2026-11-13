@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -21,7 +22,7 @@ class MiseFixture(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="mise-skills-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
-        self.home = self.root / "home"
+        self.home = self.root / "home $(touch injected)"
         self.home.mkdir()
         self.project = self.root / "project"
         self.project.mkdir()
@@ -42,7 +43,13 @@ class MiseFixture(unittest.TestCase):
         }
         plugin = Path(self.env["MISE_DATA_DIR"]) / "plugins/skills"
         plugin.parent.mkdir(parents=True)
-        shutil.copytree(ROOT, plugin, ignore=shutil.ignore_patterns(".git", ".opencode", "tests"))
+        shutil.copytree(ROOT, plugin, ignore=shutil.ignore_patterns(".git", ".opencode", ".mise", "tests"))
+        self.bin = self.root / "bin with spaces"
+        self.bin.mkdir()
+        cli = self.bin / "skills"
+        cli.write_text(f"#!{sys.executable}\n" + (ROOT / "tests/fixtures/skills.py").read_text())
+        cli.chmod(0o755)
+        self.env["PATH"] = str(self.bin) + ":" + self.env["PATH"]
         self.target = self.home / ".agents/skills/demo"
         self.lock = self.root / "state/skills/.skill-lock.json"
         self.declare("demo")
@@ -54,7 +61,7 @@ class MiseFixture(unittest.TestCase):
         (self.project / "mise.toml").write_text("[bootstrap.packages]\n" + declarations)
 
     def record(self, **changes):
-        entry = {"sourceUrl": SOURCE, "ref": PIN, **changes}
+        entry = {"sourceUrl": SOURCE, "sourceType": "github", "ref": PIN, **changes}
         self.lock.parent.mkdir(parents=True, exist_ok=True)
         self.lock.write_text(json.dumps({"version": 3, "skills": {"demo": entry}}))
 
@@ -149,6 +156,66 @@ class PackageStatusTests(MiseFixture):
         self.record()
         self.lock.write_text("not json")
         self.status(error="Global lock is not valid JSON")
+
+    def test_nested_symlink_rejected(self):
+        self.record()
+        self.install_files()
+        nested = self.target / ".hidden/nested"
+        nested.mkdir(parents=True)
+        (nested / "link").symlink_to(self.project)
+        self.status(error="Target contains a symlink")
+
+    def test_symlinked_target_parent_rejected(self):
+        self.record()
+        self.target.parent.parent.mkdir(parents=True)
+        self.target.parent.symlink_to(self.project, target_is_directory=True)
+        self.status(error="Target ancestor is a symlink")
+
+    def test_directory_entrypoint_rejected(self):
+        self.record()
+        (self.target / "SKILL.md").mkdir(parents=True)
+        self.status(error="Entrypoint is not a regular file")
+
+    def test_malformed_entry_rejected(self):
+        self.record(ref=123)
+        self.status(error="Invalid global lock entry")
+
+    def test_array_instead_of_lock_map_rejected(self):
+        self.record()
+        self.lock.write_text('{"version":3,"skills":[]}')
+        self.status(error="Unsupported global skills lock version or shape")
+
+    def test_empty_config(self):
+        self.declare()
+        self.status()
+        self.assertFalse(self.lock.exists())
+
+    def test_colliding_skill_names_rejected(self):
+        (self.project / "mise.toml").write_text(
+            '[bootstrap.packages]\n'
+            f'"skills:example/skills/demo" = "{PIN}"\n'
+            f'"skills:other/skills/demo" = "{PIN}"\n'
+        )
+        self.status(error="Conflicting skill identity")
+
+    def test_colliding_lock_alias_rejected(self):
+        self.record()
+        data = json.loads(self.lock.read_text())
+        data["skills"]["Demo"] = {"sourceType": "local"}
+        self.lock.write_text(json.dumps(data))
+        self.status(error="Conflicting skill identity in global lock")
+
+    def test_unsafe_package_names_rejected(self):
+        for skill in ["../escape", "*", "--all", "MixedCase", "nested/skill"]:
+            with self.subTest(skill=skill):
+                self.declare(skill)
+                self.status(error="Invalid package name")
+
+    def test_missing_pin_rejected(self):
+        (self.project / "mise.toml").write_text(
+            '[bootstrap.packages]\n"skills:example/skills/demo" = "latest"\n'
+        )
+        self.status(error="Expected a full 40-character lowercase commit SHA")
 
 
 if __name__ == "__main__":

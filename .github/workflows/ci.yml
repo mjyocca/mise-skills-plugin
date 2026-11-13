@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        mise: ["2026.10.25", "latest"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          version: ${{ matrix.mise }}
+      - run: mise run deps:lua
+      - run: mise run check
+
+  # Network access and the real CLI are deliberately separate from offline tests.
+  compatibility:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+      - run: mise install node@22.20.0 npm:skills@1.7.6
+      - name: Verify the real CLI in a disposable HOME
+        shell: bash
+        run: |
+          export SKILLS_CLI_TEST_BIN="$(mise exec node@22.20.0 npm:skills@1.7.6 -- which skills)"
+          mise exec node@22.20.0 -- mise run test:compat
