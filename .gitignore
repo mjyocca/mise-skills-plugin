@@ -17,3 +17,7 @@ node_modules/
 
 # Logs
 *.log
+
+# OpenCode (local development artifacts)
+.opencode/
+opencode.jsonc
