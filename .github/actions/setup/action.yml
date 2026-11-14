@@ -1,5 +1,5 @@
 name: Set up test environment
-description: Install mise and Lua test tools, optionally with Node and skills CLI releases.
+description: Install mise, system packages, and Lua test tools, optionally with Node and skills CLI releases.
 
 inputs:
   skills-versions:
@@ -15,15 +15,15 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install Lua build dependencies
-      shell: bash
-      run: |
-        sudo apt-get update
-        sudo apt-get install --yes --no-install-recommends \
-          build-essential git pkg-config libreadline-dev libncurses-dev
-    # Omitting version selects the latest mise release, not a literal "latest" tag.
-    - name: Set up mise
-      uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+    # Install mise, then apply [bootstrap.packages] and [tools] from mise.toml.
+    # `--only packages,tools` puts the apt build dependencies in place before
+    # mise compiles Lua from source. This auto-install is CI-only; contributors
+    # install those packages themselves or run `mise bootstrap packages apply`.
+    - name: Set up mise, system packages, and tools
+      uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5
+      with:
+        bootstrap: "true"
+        bootstrap_args: "--only packages,tools --update --yes"
     - name: Install Lua test tools
       shell: bash
       run: mise run deps:lua
