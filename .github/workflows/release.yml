@@ -1,0 +1,129 @@
+name: Prepare release
+run-name: Prepare release from ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-slim
+    timeout-minutes: 12
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        id: setup
+        with:
+          skills-versions: "1.7.6 latest"
+      - name: Read release version
+        id: version
+        shell: bash
+        run: |
+          version="$(mise exec -- lua -e 'io.write(require("version"))')"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo '::error::version.lua must return a stable x.y.z version without leading zeros.'
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Check for an existing tag or release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        with:
+          script: |
+            const tag = `v${process.env.RELEASE_VERSION}`;
+            try {
+              await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` });
+              throw new Error(`Tag ${tag} already exists; it will not be moved.`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            // Listing releases also detects drafts that do not yet have a tag.
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              ...context.repo, per_page: 100,
+            });
+            if (releases.some(release => release.tag_name === tag)) {
+              throw new Error(`A release or draft for ${tag} already exists.`);
+            }
+      - run: mise run check
+      - name: Verify minimum and latest skills CLI concurrently
+        env:
+          SKILLS_CLI_BINS: ${{ steps.setup.outputs.skills-cli-bins }}
+        run: bash .github/scripts/test-compatibility.sh
+
+  prepare:
+    needs: validate
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor == github.repository_owner &&
+      github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-slim
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      # No checkout, repository scripts, or dependencies run with the write token.
+      - name: Create tag and draft release
+        id: release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_SHA: ${{ needs.validate.outputs.sha }}
+        with:
+          script: |
+            const version = process.env.RELEASE_VERSION || '';
+            const sha = process.env.RELEASE_SHA || '';
+            if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version) ||
+                version.trim() !== version || !/^[0-9a-f]{40}$/.test(sha) || sha.trim() !== sha) {
+              throw new Error('Invalid validated release version or commit SHA.');
+            }
+            const tag = `v${version}`;
+            // Recheck after validation: another actor may have created the tag
+            // or release while the tests were running. Never update either one.
+            try {
+              await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` });
+              throw new Error(`Tag ${tag} already exists; it will not be moved.`);
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              ...context.repo, per_page: 100,
+            });
+            if (releases.some(release => release.tag_name === tag)) {
+              throw new Error(`A release or draft for ${tag} already exists.`);
+            }
+            await github.rest.git.createRef({
+              ...context.repo, ref: `refs/tags/${tag}`, sha,
+            });
+            const { data: release } = await github.rest.repos.createRelease({
+              ...context.repo,
+              tag_name: tag,
+              target_commitish: sha,
+              name: tag,
+              draft: true,
+              prerelease: false,
+              generate_release_notes: true,
+            });
+            core.setOutput('release-url', release.html_url);
+            await core.summary
+              .addHeading(`Draft release ${tag} prepared`)
+              .addLink('Review and publish the draft', release.html_url)
+              .addRaw(`\n\nValidated commit: \`${sha}\`.\n\n`)
+              .addRaw('The tag is already public. The release remains a draft until you publish it.\n')
+              .write();

@@ -1,0 +1,12 @@
+local mise = require("tests.support.mise")
+local fs = require("tests.support.fs")
+
+describe("metadata loading in the actual mise runtime", function()
+  it("resolves the version from the plugin, not the caller's working directory", function()
+    local f = mise.new(finally)
+    fs.write(f.project .. "/version.lua", 'error("Project version must not load")\n')
+    assert.equals("missing", f.status().skills.packages[1].state)
+    assert.same({}, f.calls())
+    assert.is_false(fs.exists(f.lock))
+  end)
+end)

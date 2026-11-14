@@ -1,0 +1,54 @@
+name: Set up test environment
+description: Install mise and Lua test tools, optionally with Node and skills CLI releases.
+
+inputs:
+  skills-versions:
+    description: Space-separated skills CLI versions or dist-tags; empty for offline tests.
+    required: false
+    default: ""
+
+outputs:
+  skills-cli-bins:
+    description: JSON map of requested versions to executable paths, empty when not requested.
+    value: ${{ steps.skills.outputs.bins }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Lua build dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends \
+          build-essential pkg-config libreadline-dev libncurses-dev
+    # Omitting version selects the latest mise release, not a literal "latest" tag.
+    - name: Set up mise
+      uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+    - name: Install Lua test tools
+      shell: bash
+      run: mise run deps:lua
+    - name: Install skills CLIs
+      id: skills
+      if: inputs.skills-versions != ''
+      shell: bash
+      env:
+        SKILLS_CLI_VERSIONS: ${{ inputs.skills-versions }}
+        NODE_VERSION: "22.20.0"
+      run: |
+        read -r -a versions <<< "$SKILLS_CLI_VERSIONS"
+        tools=("node@$NODE_VERSION")
+        for version in "${versions[@]}"; do
+          tools+=("npm:skills@$version")
+        done
+        mise install "${tools[@]}"
+        bins='{}'
+        for version in "${versions[@]}"; do
+          skills_bin="$(mise exec "node@$NODE_VERSION" "npm:skills@$version" -- bash -c 'command -v skills')"
+          bins="$(jq -cn --argjson bins "$bins" --arg version "$version" --arg bin "$skills_bin" \
+            '$bins + {($version): $bin}')"
+          printf 'skills %s: ' "$version"
+          mise exec "node@$NODE_VERSION" -- "$skills_bin" --version
+        done
+        printf 'bins=%s\n' "$bins" >> "$GITHUB_OUTPUT"
+        node_bin="$(mise exec "node@$NODE_VERSION" -- bash -c 'command -v node')"
+        dirname "$node_bin" >> "$GITHUB_PATH"

@@ -1,0 +1,45 @@
+name: Compatibility
+
+on:
+  pull_request:
+  pull_request_review:
+    types: [submitted]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to test (blank uses the selected branch)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # Keep untrusted PR execution unprivileged; do not use pull_request_target.
+  # Approvals authorize only the reviewed head commit, not future PR updates.
+  compatibility:
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.user.login == github.repository_owner) ||
+      (github.event_name == 'pull_request_review' &&
+       github.event.pull_request.state == 'open' &&
+       github.event.review.state == 'approved' &&
+       github.event.review.user.login == github.repository_owner &&
+       github.event.review.commit_id == github.event.pull_request.head.sha) ||
+      (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner)
+    runs-on: ubuntu-slim
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # A review run must never resolve a moving branch or PR merge ref.
+          ref: ${{ github.event_name == 'pull_request_review' && github.event.review.commit_id || github.event_name == 'workflow_dispatch' && inputs.pr_number != '' && format('refs/pull/{0}/merge', inputs.pr_number) || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        id: setup
+        with:
+          skills-versions: "1.7.6 latest"
+      - name: Verify both CLI versions concurrently in disposable homes
+        env:
+          SKILLS_CLI_BINS: ${{ steps.setup.outputs.skills-cli-bins }}
+        run: bash .github/scripts/test-compatibility.sh

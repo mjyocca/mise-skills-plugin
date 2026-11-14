@@ -1,0 +1,43 @@
+[tools]
+lua = "5.1.5"
+stylua = "2.6.0"
+
+[tasks."deps:lua"]
+description = "Install pinned Lua test/lint tools into a project-local tree"
+run = [
+  "luarocks --tree .mise/rocks install busted 2.3.0",
+  "luarocks --tree .mise/rocks install luacheck 1.2.0",
+  "luarocks --tree .mise/rocks install luaposix 36.3",
+  "luarocks --tree .mise/rocks install luasystem 0.7.1",
+]
+
+[tasks."test:unit"]
+description = "Run Lua 5.1 unit tests (run deps:lua first)"
+run = ".mise/rocks/bin/busted"
+
+[tasks."test:integration"]
+description = "Run offline tests against mise's embedded Lua runtime"
+run = ".mise/rocks/bin/busted tests/integration"
+
+[tasks."test:harness"]
+description = "Check subprocess timeouts, output capture, and safe fixture cleanup"
+run = ".mise/rocks/bin/busted tests/harness"
+
+[tasks."test:compat"]
+description = "Opt-in network tests; set SKILLS_CLI_TEST_BIN to skills >= 1.7.6"
+run = ".mise/rocks/bin/busted tests/compat"
+
+[tasks.test]
+depends = ["test:unit", "test:harness", "test:integration"]
+
+[tasks.fmt]
+run = "stylua metadata.lua version.lua hooks lib tests .busted .luacheckrc"
+
+[tasks.lint]
+run = [
+  "stylua --check metadata.lua version.lua hooks lib tests .busted .luacheckrc",
+  ".mise/rocks/bin/luacheck metadata.lua version.lua hooks lib tests",
+]
+
+[tasks.check]
+depends = ["lint", "test"]

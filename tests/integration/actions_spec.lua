@@ -1,0 +1,199 @@
+local mise = require("tests.support.mise")
+local fs = require("tests.support.fs")
+local json = require("dkjson")
+
+describe("package actions in the actual mise runtime", function()
+  local f, cleanup
+  before_each(function()
+    f = mise.new(function(fn)
+      cleanup = fn
+    end)
+  end)
+  after_each(function()
+    if cleanup then
+      cleanup()
+      cleanup = nil
+    end
+  end)
+
+  local function installed()
+    assert.equals(mise.PIN, f.status().skills.packages[1].installed_version)
+  end
+
+  it("applies missing skills then skips matching pins", function()
+    f.action("apply")
+    installed()
+    assert.equals(1, #f.calls())
+    assert.is_false(fs.exists(f.project .. "/injected"))
+    f.action("apply")
+    assert.equals(1, #f.calls())
+  end)
+
+  it("applies a changed pin", function()
+    f.record({ ref = string.rep("b", 40) })
+    f.install_files()
+    f.action("apply")
+    installed()
+  end)
+
+  it("uses XDG without MISE_DATA_DIR", function()
+    f.env.MISE_DATA_DIR = nil
+    f.action("apply")
+    installed()
+  end)
+
+  it("uses HOME without data overrides", function()
+    local original = f.env.MISE_DATA_DIR
+    f.env.MISE_DATA_DIR = nil
+    f.env.XDG_DATA_HOME = nil
+    fs.mkdir(f.home .. "/.local/share")
+    assert(os.rename(original, f.home .. "/.local/share/mise"))
+    f.action("apply")
+    installed()
+  end)
+
+  it("honors explicit MISE_DATA_DIR precedence", function()
+    local override = f.root .. "/custom-mise-data"
+    assert(os.rename(f.env.MISE_DATA_DIR, override))
+    f.env.MISE_DATA_DIR = override
+    f.action("apply")
+    installed()
+  end)
+
+  it("restores a deleted directory with an existing lock", function()
+    f.action("apply")
+    fs.remove(f.target, f.root)
+    assert.is_not_nil(mise.decode(fs.read(f.lock)).skills.demo)
+    f.action("apply")
+    assert.is_true(fs.exists(f.target .. "/SKILL.md"))
+    assert.equals(2, #f.calls())
+  end)
+
+  it("upgrades a changed pin", function()
+    f.record({ ref = string.rep("b", 40) })
+    f.install_files()
+    f.action("upgrade")
+    installed()
+  end)
+
+  it("prunes a mise-installed fixture", function()
+    f.action("apply")
+    f.declare()
+    f.action("prune", "--manager", "skills")
+    assert.is_false(fs.exists(f.target))
+    assert.is_nil(mise.decode(fs.read(f.lock)).skills.demo)
+    local calls = f.calls()
+    assert.equals("remove", calls[#calls][1])
+  end)
+
+  it("does not invoke the CLI during apply dry-run", function()
+    f.action("apply", "--dry-run")
+    assert.same({}, f.calls())
+    assert.is_false(fs.exists(f.target))
+    assert.is_false(fs.exists(f.lock))
+  end)
+
+  it("does not invoke the CLI during upgrade dry-run", function()
+    f.record({ ref = string.rep("b", 40) })
+    f.install_files()
+    local before = fs.read(f.lock)
+    f.action("upgrade", "--dry-run")
+    assert.same({}, f.calls())
+    assert.equals(before, fs.read(f.lock))
+  end)
+
+  it("does not upgrade a current pin", function()
+    f.record()
+    f.install_files()
+    f.action("upgrade")
+    assert.same({}, f.calls())
+  end)
+
+  it("reports action failure", function()
+    f.env.SKILLS_TEST_FAIL = "1"
+    f.run({ "apply" }, "fixture action failed")
+  end)
+
+  it("rejects incompatible CLI versions before mutation", function()
+    f.env.SKILLS_TEST_VERSION = "1.7.5"
+    f.run({ "apply" }, "Unsupported skills CLI version")
+    assert.same({}, f.calls())
+  end)
+
+  for _, version in ipairs({ "1.7.6", "1.8.1", "1.10.0", "2.0.0" }) do
+    it("accepts a compatible CLI at or above the minimum: " .. version, function()
+      f.env.SKILLS_TEST_VERSION = version
+      f.action("apply")
+      installed()
+      assert.equals(1, #f.calls())
+    end)
+  end
+
+  local modes = {
+    { "invalid", "Invalid skills add JSON" },
+    { "missing", "Missing skills add results" },
+    { "extra", "Unexpected or duplicate" },
+    { "duplicate", "Unexpected or duplicate" },
+  }
+  for _, change in ipairs({
+    { status = "skipped" },
+    { source = "foreign/repo" },
+    { ref = "main" },
+    { scope = "project" },
+    { mode = "symlink" },
+    { agents = { "codex" } },
+    { path = "/outside" },
+  }) do
+    modes[#modes + 1] = { json.encode(change), "Skills add result did not confirm" }
+  end
+  for _, mode in ipairs(modes) do
+    it("validates JSON result: " .. mode[1], function()
+      f.env.SKILLS_TEST_RESULT = mode[1]
+      f.run({ "apply" }, mode[2])
+    end)
+  end
+
+  it("rejects shell substitution in pins", function()
+    fs.write(
+      f.project .. "/mise.toml",
+      '[bootstrap.packages]\n"skills:example/skills/demo" = "$(touch injected)"\n'
+    )
+    f.run({ "apply" }, "Expected a full 40-character")
+    assert.is_false(fs.exists(f.project .. "/injected"))
+    assert.same({}, f.calls())
+  end)
+
+  it("batches requests for the same source", function()
+    f.declare("demo", "other")
+    f.action("apply")
+    local calls = f.calls()
+    assert.equals(1, #calls)
+    local names = { calls[1][4], calls[1][5] }
+    table.sort(names)
+    assert.same({ "demo", "other" }, names)
+  end)
+
+  it("rejects unpinned CLI selectors without mutation", function()
+    f.declare("demo", "other")
+    f.run({ "apply", "skills:example/skills/demo" }, "Expected a full 40-character")
+    assert.same({}, f.calls())
+    assert.is_false(fs.exists(f.home .. "/.agents/skills/other"))
+  end)
+
+  it("does not invoke remove during prune dry-run", function()
+    f.action("apply")
+    f.declare()
+    local before = fs.read(f.lock)
+    f.action("prune", "--manager", "skills", "--dry-run")
+    assert.equals(1, #f.calls())
+    assert.equals(before, fs.read(f.lock))
+  end)
+
+  it("does not force-delete shared content", function()
+    f.action("apply")
+    f.declare()
+    f.env.SKILLS_TEST_RETAIN = "1"
+    f.run({ "prune", "--manager", "skills" }, "CLI did not fully remove")
+    assert.is_true(fs.exists(f.target))
+  end)
+end)
