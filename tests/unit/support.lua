@@ -4,7 +4,7 @@ local stub = require("luassert.stub")
 local M = {}
 
 function M.fixture()
-  for _, name in ipairs({ "package", "state", "cli", "actions" }) do
+  for _, name in ipairs({ "package", "state", "cli", "actions", "git" }) do
     package.loaded["lib." .. name] = nil
   end
   local f = {
@@ -34,7 +34,17 @@ function M.fixture()
     f.write("/fixture/state/skills/.skill-lock.json", json.encode({ version = 3, skills = skills }))
   end
   function f.install(spec)
-    f.lock({ [spec.skill] = { sourceUrl = spec.url, sourceType = "github", ref = spec.pin } })
+    -- Merge like the real CLI: installing one skill keeps the other entries.
+    local skills = {}
+    local node = f.nodes["/fixture/state/skills/.skill-lock.json"]
+    if node then
+      local data = json.decode(node.content)
+      for key, value in pairs(data.skills or {}) do
+        skills[key] = value
+      end
+    end
+    skills[spec.skill] = { sourceUrl = spec.url, sourceType = "github", ref = spec.pin }
+    f.lock(skills)
     f.write("/fixture/home/.agents/skills/" .. spec.skill .. "/SKILL.md", "fixture")
   end
   package.loaded.file = {
