@@ -316,11 +316,17 @@ To try a working copy manually, link it in a disposable mise environment with
 `HOME` and XDG directories and check `status` and `apply --dry-run` first;
 applying packages in your normal environment changes your global skills.
 
+### Preparing a release
+
+See the [release guide](docs/release.md) for version bumps, Git tags, and GitHub
+release publication.
+
 ### Plugin structure
 
 ```
 mise-skills-plugin/
 ├── metadata.lua              # Plugin metadata
+├── version.lua               # Single source for the plugin release version
 ├── mise.plugin.toml          # Plugin configuration
 ├── hooks/
 │   ├── package_installed.lua   # Status check hook

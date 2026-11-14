@@ -31,12 +31,12 @@ run = ".mise/rocks/bin/busted tests/compat"
 depends = ["test:unit", "test:harness", "test:integration"]
 
 [tasks.fmt]
-run = "stylua metadata.lua hooks lib tests .busted .luacheckrc"
+run = "stylua metadata.lua version.lua hooks lib tests .busted .luacheckrc"
 
 [tasks.lint]
 run = [
-  "stylua --check metadata.lua hooks lib tests .busted .luacheckrc",
-  ".mise/rocks/bin/luacheck metadata.lua hooks lib tests",
+  "stylua --check metadata.lua version.lua hooks lib tests .busted .luacheckrc",
+  ".mise/rocks/bin/luacheck metadata.lua version.lua hooks lib tests",
 ]
 
 [tasks.check]

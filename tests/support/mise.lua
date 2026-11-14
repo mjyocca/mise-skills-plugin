@@ -50,7 +50,7 @@ function M.new(cleanup)
     MISE_OFFLINE = "1",
   }
   local plugin = f.env.MISE_DATA_DIR .. "/plugins/skills"
-  for _, name in ipairs({ "metadata.lua", "mise.plugin.toml", "hooks", "lib" }) do
+  for _, name in ipairs({ "metadata.lua", "version.lua", "mise.plugin.toml", "hooks", "lib" }) do
     fs.copy(ROOT .. "/" .. name, plugin .. "/" .. name)
   end
   local setup = string.format(
