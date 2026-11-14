@@ -2,6 +2,7 @@
 
 - **No content verification or forced reinstall**: Missing targets or entrypoints are repaired by `apply`, but edited file contents are not detected when the pin matches
 - **Mutable selectors**: Tags and branches can be moved upstream. The lock records the declared name, so the plugin cannot detect a moved tag without re-fetching it; re-declare a different name (or a SHA) to force the refresh. `latest` tracks the default branch only
+- **Canonical names, not repository paths**: Skills are selected by their canonical name (the `name` in their `SKILL.md`), not by a directory path. The skills CLI's `add owner/repo/<path>` shorthand is a source subpath this plugin does not model, so nested paths such as `skills:owner/repo/plugins/terraform/skill` are rejected; declare `skills:owner/repo/skill` instead.
 - **`latest` refresh requires `upgrade`**: mise treats an installed "any version" declaration as satisfied, so `apply` will not re-resolve it. Also, resolving `latest` needs Git and network access at plan time; offline runs fail resolution instead of guessing
 - **Shared-agent removal**: The CLI can retain canonical content used by another agent; prune reports incomplete removal rather than force-deleting it
 - **Lock-only leftovers**: The removal hook handles a tracked entry with missing files when supplied, but mise may already consider it missing and not call the hook; review stale entries with the skills CLI
