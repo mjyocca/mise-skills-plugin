@@ -318,8 +318,8 @@ applying packages in your normal environment changes your global skills.
 
 ### Preparing a release
 
-See the [release guide](docs/release.md) for version bumps, Git tags, and GitHub
-release publication.
+See the [release guide](docs/release.md) for version bumps, Actions-driven draft
+preparation, and publishing through GitHub Releases.
 
 ### Plugin structure
 
