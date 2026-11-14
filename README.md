@@ -266,10 +266,20 @@ or protection against another process changing files after inspection.
 
 ### Testing
 
-On Debian/Ubuntu, first install `build-essential`, `git`, `pkg-config`,
-`libreadline-dev`, and `libncurses-dev`; mise builds Lua 5.1 from source and
-the offline suite fakes `git ls-remote` behind a shim that forwards to the
-real executable.
+On Debian/Ubuntu, Lua 5.1 is compiled from source, so Linux build machines
+need `build-essential`, `git`, `pkg-config`, `libreadline-dev`, and
+`libncurses-dev`. These are declared once in this repository's
+`[bootstrap.packages]`, but mise never installs them implicitly: `mise install`
+only prints a one-time hint. Install them yourself, or let mise apply them from
+the declaration:
+
+```bash
+# Explicit and opt-in; runs sudo apt-get install for you (skipped on macOS).
+mise bootstrap packages apply
+```
+
+The offline suite fakes `git ls-remote` behind a shim that forwards to the
+real executable, so `git` must be on `PATH`.
 
 Install the pinned development tools, then the project-local Lua test tools:
 
@@ -316,11 +326,13 @@ results must pass; latest is not an allowed-to-fail canary. Per-version logs and
 a job summary report both results, even if one suite fails.
 
 Both workflows call `.github/actions/setup`, a composite action that installs
-the system build packages, mise, and Lua test tools in the current job. Its
-optional `skills-versions` input accepts a space-separated list, installs Node
-and the requested CLIs, exposes Node on `PATH`, and returns a JSON map of CLI
-paths as `skills-cli-bins`. Checkout and approval gating stay in the workflows;
-a separate setup job would not share its installed tools with other runners.
+mise and then runs `mise bootstrap --only packages,tools --update --yes` to apply
+the system build packages from `[bootstrap.packages]` before installing `[tools]`.
+It installs the Lua test tools next. Its optional `skills-versions` input accepts
+a space-separated list, installs Node and the requested CLIs, exposes Node on
+`PATH`, and returns a JSON map of CLI paths as `skills-cli-bins`. Checkout and
+approval gating stay in the workflows; a separate setup job would not share its
+installed tools with other runners.
 
 `ubuntu-slim` is a single-CPU hosted container, not a full VM. Jobs have a
 12-minute timeout, below the runner's 15-minute limit. External actions are

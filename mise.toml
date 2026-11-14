@@ -2,6 +2,18 @@
 lua = "5.1.5"
 stylua = "2.6.0"
 
+# Linux build dependencies. Source of truth for the system packages Lua 5.1
+# needs to compile. mise never installs these implicitly: `mise install` only
+# prints a one-time hint. Contributors install them themselves or run
+# `mise bootstrap packages apply`; CI applies them via the shared setup action.
+# On non-apt machines (e.g. macOS) these entries are simply skipped.
+[bootstrap.packages]
+"apt:build-essential" = "latest"
+"apt:git" = "latest"
+"apt:pkg-config" = "latest"
+"apt:libreadline-dev" = "latest"
+"apt:libncurses-dev" = "latest"
+
 [tasks."deps:lua"]
 description = "Install pinned Lua test/lint tools into a project-local tree"
 run = [
