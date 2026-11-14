@@ -28,8 +28,9 @@ that tag before you publish the release, but only after all validation passes.
 
 ## Prepare and validate
 
-1. Update the string in `version.lua`, for example from `0.1.0` to `0.2.0`.
-   Use a stable `x.y.z` version without leading zeros or the `v` tag prefix.
+1. Update the string in `version.lua`, for example from `0.1.0` to `0.2.0`,
+   and add a matching entry to `CHANGELOG.md`. Use a stable `x.y.z` version
+   without leading zeros or the `v` tag prefix.
 2. Run `mise run check`, open a release-preparation PR, and merge it into `main`.
 3. Open **Actions → Prepare release → Run workflow**. Select **main**, then
    click **Run workflow**. There is no version input: the action reads

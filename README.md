@@ -456,6 +456,7 @@ Contributions are welcome! Please open an issue or PR on GitHub.
 
 ## Resources
 
+- [Changelog](CHANGELOG.md)
 - [mise documentation](https://mise.jdx.dev/)
 - [Vercel skills CLI](https://github.com/vercel-labs/skills)
 - [mise package manager plugin development](https://mise.jdx.dev/package-plugin-development.html)
