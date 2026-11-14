@@ -3,13 +3,40 @@ local log = require("log")
 local package_contract = require("lib.package")
 local state = require("lib.state")
 local cli = require("lib.cli")
+local git = require("lib.git")
 
 local M = {}
+
+-- Replace each "latest" declaration with the current remote HEAD SHA, sharing
+-- one ls-remote per source. Resolution is read-only, so it also runs for dry
+-- runs to keep previews accurate; it never invokes the skills CLI.
+local function planned(specs)
+  local heads, resolved = {}, {}
+  for _, spec in ipairs(specs) do
+    if spec.kind == "latest" then
+      local head = heads[spec.url]
+      if head == nil then
+        head = git.resolve_head(spec.url)
+        heads[spec.url] = head
+      end
+      spec = package_contract.resolved(spec, head)
+    end
+    resolved[#resolved + 1] = spec
+  end
+  return resolved
+end
+
+local function label(spec)
+  if spec.declared then
+    return spec.name .. "@" .. spec.declared .. " (" .. spec.pin .. ")"
+  end
+  return spec.name .. "@" .. spec.pin
+end
 
 -- Apply and upgrade share pin semantics. update refreshes manager metadata;
 -- this manager has no metadata cache and never interprets it as force-repair.
 function M.install(ctx)
-  local specs = package_contract.parse_batch(ctx.packages)
+  local specs = planned(package_contract.parse_batch(ctx.packages))
   local lock = state.read_lock()
   local pending = {}
   for _, spec in ipairs(specs) do
@@ -20,7 +47,7 @@ function M.install(ctx)
   end
   if ctx.dry_run then
     for _, spec in ipairs(pending) do
-      log.info("Would install globally: " .. spec.name .. "@" .. spec.pin)
+      log.info("Would install globally: " .. label(spec))
     end
     return
   end
@@ -33,7 +60,7 @@ function M.install(ctx)
     lock = state.read_lock()
     for _, spec in ipairs(group.specs) do
       state.inspect(lock, spec)
-      log.info("Install globally: " .. spec.name .. "@" .. spec.pin)
+      log.info("Install globally: " .. label(spec))
     end
     cli.add(group)
     lock = state.read_lock()
@@ -49,11 +76,21 @@ end
 function M.remove(ctx)
   local specs = package_contract.parse_batch(ctx.packages)
   local lock = state.read_lock()
-  -- Preflight the entire batch before allowing the first removal.
+  -- Preflight the entire batch before allowing the first removal. Removals
+  -- never resolve "latest"; the install path only records resolved SHAs for
+  -- it, so any other recorded ref means ownership changed shape.
   local function owned(spec)
     local entry = state.inspect(lock, spec)
-    if entry and entry.ref ~= spec.pin then
-      error("Different ref in global lock for " .. spec.skill .. "; not removing")
+    if entry then
+      if spec.kind == "latest" then
+        if not package_contract.is_pin(entry.ref) then
+          error(
+            "Global lock for " .. spec.skill .. " does not hold a resolved commit SHA; not removing"
+          )
+        end
+      elseif entry.ref ~= spec.pin then
+        error("Different ref in global lock for " .. spec.skill .. "; not removing")
+      end
     end
     return entry
   end

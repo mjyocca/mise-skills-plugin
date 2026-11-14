@@ -3,15 +3,22 @@ local M = {}
 
 ---@class PackageRequest
 ---@field name string owner/repo/skill-id, without the mise manager prefix
----@field version string Full lowercase Git commit SHA
+---@field version string|nil Commit SHA, Git tag/branch ref name, or omitted/"latest"
 
 ---@class SkillSpec
 ---@field name string
 ---@field skill string Canonical CLI lock key and directory basename
 ---@field source string GitHub owner/repo
 ---@field url string Canonical HTTPS clone URL
----@field pin string
+---@field pin string Effective ref: a SHA, a ref name, or "latest" before resolution
+---@field kind string "sha", "ref", or "latest"
+---@field declared string|nil Original declaration, set when it differs from pin
 
+M.LATEST = "latest"
+
+-- Only a 40-character lowercase SHA-1 hex counts as a commit pin. The SHA-256
+-- object format (64 hex) is not a Git default and is intentionally unsupported;
+-- this matches the skills CLI's own ref detection (/^[0-9a-f]{40}$/i).
 function M.is_pin(value)
   return type(value) == "string" and #value == 40 and value:match("^[0-9a-f]+$") ~= nil
 end
@@ -20,6 +27,67 @@ function M.is_skill(value)
   return type(value) == "string"
     and value:match("^[a-z0-9][a-z0-9._%-]*$") ~= nil
     and value:match("[a-z0-9_]$") ~= nil
+end
+
+-- A conservative subset of git-check-ref-format. The value is embedded in a URL
+-- fragment and reaches `git clone --branch`, so reject flag-like, URL-hostile,
+-- and ambiguous names. `@` is excluded because the CLI's fragment parser splits
+-- ref@skill-filter on it, and leading `-` could travel as a command flag.
+function M.is_ref(value)
+  if type(value) ~= "string" or value == "" or #value > 255 then
+    return false
+  end
+  if value:match("[^A-Za-z0-9._/+%-]") then
+    return false
+  end
+  if value:match("^[-.]") or value:match("[./]$") then
+    return false
+  end
+  if value:match("%.%.") or value:match("//") then
+    return false
+  end
+  for component in value:gmatch("[^/]+") do
+    if component:match("^[.]") or component:match("%.lock$") then
+      return false
+    end
+  end
+  return true
+end
+
+-- Classify a declared version: "sha", "latest", "ref", or nil when unsupported.
+-- mise parses the "latest" config value to an absent version, so an omitted
+-- version is the canonical form of "latest"; the literal string is accepted
+-- for direct hook callers.
+function M.classify(version)
+  if version == nil or version == M.LATEST then
+    return "latest"
+  end
+  if M.is_pin(version) then
+    return "sha"
+  end
+  if type(version) ~= "string" then
+    return nil
+  end
+  -- Hex strings of SHA-like length are commit typos, never ref names; only an
+  -- exact 40-character lowercase SHA (handled above) is a valid commit pin.
+  if #version >= 32 and version:match("^%x+$") then
+    return nil
+  end
+  if M.is_ref(version) then
+    return "ref"
+  end
+  return nil
+end
+
+local function version_error(name, version)
+  if type(version) == "string" and #version >= 32 and version:match("^%x+$") then
+    return "Expected a full 40-character lowercase commit SHA for " .. name
+  end
+  return "Invalid version for "
+    .. name
+    .. ": "
+    .. tostring(version)
+    .. ' (expected a full 40-character lowercase commit SHA, a Git tag or branch ref, or "latest")'
 end
 
 ---@param request PackageRequest
@@ -41,8 +109,9 @@ function M.parse(request)
   then
     error("Invalid package name (expected owner/repo/canonical-skill-id): " .. tostring(name))
   end
-  if not M.is_pin(request.version) then
-    error("Expected a full 40-character lowercase commit SHA for " .. name)
+  local kind = M.classify(request.version)
+  if not kind then
+    error(version_error(name, request.version))
   end
   local source = owner .. "/" .. repo
   return {
@@ -50,7 +119,30 @@ function M.parse(request)
     skill = skill,
     source = source,
     url = "https://github.com/" .. source .. ".git",
-    pin = request.version,
+    pin = request.version or M.LATEST,
+    kind = kind,
+  }
+end
+
+-- Copy a spec with a mutable "latest" declaration replaced by its resolved SHA.
+---@param spec SkillSpec
+---@param pin string Full 40-character lowercase commit SHA
+---@return SkillSpec
+function M.resolved(spec, pin)
+  if spec.kind ~= "latest" then
+    error("Only a 'latest' spec can be resolved: " .. spec.name)
+  end
+  if not M.is_pin(pin) then
+    error("Resolved latest is not a full lowercase commit SHA for " .. spec.name)
+  end
+  return {
+    name = spec.name,
+    skill = spec.skill,
+    source = spec.source,
+    url = spec.url,
+    pin = pin,
+    kind = "sha",
+    declared = spec.pin,
   }
 end
 

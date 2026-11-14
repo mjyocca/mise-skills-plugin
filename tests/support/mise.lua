@@ -4,10 +4,15 @@ local json = require("dkjson")
 local stat = require("posix.sys.stat")
 local fs = require("tests.support.fs")
 local process = require("tests.support.process")
-local M = { PIN = string.rep("a", 40), SOURCE = "https://github.com/example/skills.git" }
+local M = {
+  PIN = string.rep("a", 40),
+  HEAD = string.rep("c", 40),
+  SOURCE = "https://github.com/example/skills.git",
+}
 local ROOT = lfs.currentdir()
 local MISE = assert(process.which("mise"), "mise is required for integration tests")
 local LUA = assert(process.which("lua"), "Lua is required for the fake CLI")
+local GIT = assert(process.which("git"), "git is required for the fake ls-remote shim")
 
 function M.decode(text)
   local value, position, err = json.decode(text, 1, json.null)
@@ -69,6 +74,25 @@ function M.new(cleanup)
       .. ' "$@"\n'
   )
   assert(stat.chmod(f.bin .. "/skills", 493)) -- 0755
+  -- Only ls-remote is faked; anything else falls through to the real git so
+  -- mise internals keep working even if they shell out.
+  fs.write(
+    f.bin .. "/git",
+    "#!/bin/sh\n"
+      .. 'if [ "$1" = "ls-remote" ]; then\n'
+      .. "  exec "
+      .. quote(LUA)
+      .. " -e "
+      .. quote(setup)
+      .. " "
+      .. quote(ROOT .. "/tests/fixtures/git.lua")
+      .. ' "$@"\n'
+      .. "fi\n"
+      .. "exec "
+      .. quote(GIT)
+      .. ' "$@"\n'
+  )
+  assert(stat.chmod(f.bin .. "/git", 493)) -- 0755
 
   function f.declare(...)
     local lines = { "[bootstrap.packages]\n" }
@@ -76,6 +100,13 @@ function M.new(cleanup)
       lines[#lines + 1] = '"skills:example/skills/' .. skill .. '" = "' .. M.PIN .. '"\n'
     end
     fs.write(f.project .. "/mise.toml", table.concat(lines))
+  end
+
+  function f.declare_version(skill, version)
+    fs.write(
+      f.project .. "/mise.toml",
+      '[bootstrap.packages]\n"skills:example/skills/' .. skill .. '" = "' .. version .. '"\n'
+    )
   end
 
   function f.record(changes)
@@ -119,6 +150,16 @@ function M.new(cleanup)
 
   function f.calls()
     local calls, path = {}, f.home .. "/calls.jsonl"
+    if fs.exists(path) then
+      for line in fs.read(path):gmatch("[^\n]+") do
+        calls[#calls + 1] = M.decode(line)
+      end
+    end
+    return calls
+  end
+
+  function f.git_calls()
+    local calls, path = {}, f.home .. "/git-calls.jsonl"
     if fs.exists(path) then
       for line in fs.read(path):gmatch("[^\n]+") do
         calls[#calls + 1] = M.decode(line)

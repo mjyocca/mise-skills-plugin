@@ -10,6 +10,7 @@ describe("package contract", function()
       url = "https://github.com/example/skills.git",
       skill = "demo",
       pin = pin,
+      kind = "sha",
     }, spec)
   end)
 
@@ -34,23 +35,114 @@ describe("package contract", function()
     end)
   end
 
+  it('accepts "latest" as a mutable selector', function()
+    local spec = contract.parse({ name = "owner/repo/demo", version = "latest" })
+    assert.equals("latest", spec.kind)
+    assert.equals("latest", spec.pin)
+  end)
+
   for _, version in ipairs({
-    "latest",
+    "v1.2.3",
+    "release/2024.01",
+    "v1.0.0+build",
     "main",
-    string.rep("A", 40),
-    string.rep("a", 39),
-    "$(touch injected)",
+    "UPPER_Case-1.0",
+    "abc1234",
   }) do
-    it("rejects unsupported revision " .. version, function()
+    it("accepts Git ref " .. version, function()
+      local spec = contract.parse({ name = "owner/repo/demo", version = version })
+      assert.equals("ref", spec.kind)
+      assert.equals(version, spec.pin)
+    end)
+  end
+
+  for _, version in ipairs({
+    string.rep("A", 40),
+    string.rep("a", 32),
+    string.rep("a", 39),
+    string.rep("a", 41),
+    "$(touch injected)",
+    "-v1.2.3",
+    "v1..2",
+    ".hidden",
+    "ends.",
+    "ends.lock",
+    "a.lock/b",
+    "has space",
+    "has~tilde",
+    "has^caret",
+    "has:colon",
+    "has?question",
+    "has*star",
+    "has[bracket",
+    "back\\slash",
+    "at@{brace",
+    "v1@2",
+    "lead//slash",
+    "trail/",
+    "semi;colon",
+    "percent%20encoded",
+    "@",
+    "",
+    true,
+    string.rep("v", 256),
+  }) do
+    it("rejects unsupported revision " .. tostring(version), function()
       assert.has_error(function()
         contract.parse({ name = "owner/repo/demo", version = version })
       end)
     end)
   end
 
-  it("rejects an omitted pin", function()
+  it("reports SHA-shaped typos with the commit-specific message", function()
+    local ok, message = pcall(contract.parse, {
+      name = "owner/repo/demo",
+      version = string.rep("A", 40),
+    })
+    assert.is_false(ok)
+    assert.truthy(
+      tostring(message):find("Expected a full 40-character lowercase commit SHA", 1, true)
+    )
+  end)
+
+  it("reports other invalid versions with the selector contract", function()
+    local ok, message = pcall(contract.parse, { name = "owner/repo/demo", version = "-v1" })
+    assert.is_false(ok)
+    assert.truthy(tostring(message):find("Invalid version for owner/repo/demo", 1, true))
+  end)
+
+  it("treats an omitted version as latest", function()
+    local spec = contract.parse({ name = "owner/repo/demo" })
+    assert.equals("latest", spec.kind)
+    assert.equals("latest", spec.pin)
+  end)
+
+  it("resolves a mutable spec into a pinned copy", function()
+    local spec = contract.parse({ name = "owner/repo/demo", version = "latest" })
+    local resolved = contract.resolved(spec, pin)
+    assert.same({
+      name = "owner/repo/demo",
+      source = "owner/repo",
+      url = "https://github.com/owner/repo.git",
+      skill = "demo",
+      pin = pin,
+      kind = "sha",
+      declared = "latest",
+    }, resolved)
+    assert.equals("latest", spec.pin)
+  end)
+
+  it("rejects a malformed resolved pin", function()
+    local spec = contract.parse({ name = "owner/repo/demo", version = "latest" })
     assert.has_error(function()
-      contract.parse({ name = "owner/repo/demo" })
+      contract.resolved(spec, "main")
+    end)
+  end)
+
+  it("refuses to resolve a spec that is not latest", function()
+    local spec = contract.parse({ name = "owner/repo/demo", version = pin })
+    assert.has_error(function()
+      contract.resolved(spec, pin)
     end)
   end)
 
@@ -69,11 +161,13 @@ describe("package contract", function()
       { name = "two/repo/other", version = pin },
       { name = "one/repo/third", version = pin },
       { name = "one/repo/fourth", version = string.rep("b", 40) },
+      { name = "two/repo/fifth", version = "v1.2.3" },
     })
     local groups = contract.group(specs)
-    assert.equals(3, #groups)
+    assert.equals(4, #groups)
     assert.same({ specs[1], specs[3] }, groups[1].specs)
     assert.same({ specs[2] }, groups[2].specs)
     assert.same({ specs[4] }, groups[3].specs)
+    assert.same({ specs[5] }, groups[4].specs)
   end)
 end)

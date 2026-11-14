@@ -22,6 +22,8 @@ skills = "https://github.com/mjyocca/mise-skills-plugin"
 
 [bootstrap.packages]
 "skills:vercel-labs/skills/find-skills" = "7a5e920bead4b1039a6d6df5d7e1163b7b09423a"
+# Any published tag/branch name, or "latest" to track the default branch
+"skills:vercel-labs/agent-skills/web-design-guidelines" = "v1.2.3"
 
 [tools]
 node = "22.20.0"
@@ -38,7 +40,7 @@ mise bootstrap packages apply
 ## Features
 
 - **Declarative**: Define skills in TOML configuration
-- **Version-pinned**: Use full commit SHAs for reproducible installs
+- **Flexible versioning**: Pin a full commit SHA, install by Git tag, or track `latest`
 - **Automatic lifecycle**: Install, upgrade, and remove skills via mise commands
 - **Offline status checks**: Query installed skills without network calls
 - **Conflict detection**: Checks source ownership, revision, canonical names, and symlinks
@@ -50,7 +52,7 @@ mise bootstrap packages apply
 - [mise](https://mise.jdx.dev/) (v2026.10.25 or later)
 - Node.js v22.20.0 or later
 - The Vercel skills CLI **v1.7.6 or newer**, available on the hook's `PATH`
-- Git, for the skills CLI's clone fallback
+- Git, for the skills CLI's clone fallback and the plugin's `latest` resolution
 
 Skills are installed globally as copies in `~/.agents/skills`, using the CLI's
 `codex` agent scope. This scope is fixed; the plugin does not install separate
@@ -97,23 +99,43 @@ Add skills to your `[bootstrap.packages]` section:
 
 ```toml
 [bootstrap.packages]
-# Format: "skills:<owner>/<repo>/<skill-id>" = "<commit-sha>"
+# Format: "skills:<owner>/<repo>/<skill-id>" = "<version>"
+# Reproducible: full commit SHA
 "skills:vercel-labs/skills/find-skills" = "7a5e920bead4b1039a6d6df5d7e1163b7b09423a"
+# Semi-stable: a published Git tag (or branch) name
+"skills:vercel-labs/agent-skills/web-design-guidelines" = "v1.2.3"
+# Moving: the repository's default-branch tip
+"skills:vercel-labs/agent-skills/frontend-design" = "latest"
 ```
 
 The package name format is:
 - `skills:` - Plugin prefix (required)
 - `<owner>/<repo>` - GitHub repository
 - `<skill-id>` - Exact canonical skill name, not its path in the repository
-- `<commit-sha>` - Full 40-character lowercase hexadecimal Git commit SHA
+
+The version selector is one of:
+
+| Selector | Behavior | Recorded lock ref |
+| --- | --- | --- |
+| Full 40-character lowercase commit SHA | Installs that exact immutable commit | The SHA |
+| Git tag or branch name | Installs whatever the remote holds under that name | The name you declared |
+| `"latest"` | Installs the default-branch tip resolved at apply time | The resolved commit SHA |
+
+mise parses a declared `"latest"` to an absent version, so omitted selectors and
+explicit CLI arguments such as `apply skills:owner/repo/skill` also behave as
+`latest`. Ref names must satisfy the plugin's conservative Git ref rules: only
+letters, digits, `.`, `_`, `-`, `+`, and `/`; no leading `-` or `.`; no `..`,
+`//`, `@`, path components starting with `.`, or components ending in `.lock`;
+at most 255 characters. Hex strings of SHA-like length (32 or more characters)
+must be exactly 40 lowercase characters, so truncated or uppercase commit SHAs
+are rejected rather than mistaken for ref names.
 
 Skill IDs must start with a lowercase letter or digit, contain only lowercase
 letters, digits, `.`, `_`, and `-`, and not end in a dot or hyphen. They must
 already match the CLI's lock key and directory name: aliases, mixed-case names,
 plugin-qualified names, wildcard selectors, and nested paths are unsupported.
 Two repositories cannot declare the same skill ID because the CLI shares one
-global lock key and directory for that ID. Omitted pins, branches, tags, and
-`"latest"` are rejected.
+global lock key and directory for that ID.
 
 ### Install declared skills
 
@@ -129,32 +151,36 @@ This installs any missing or outdated skills.
 mise bootstrap packages status
 ```
 
-Shows installed skills, their declared pins, and any mismatches.
+Shows installed skills, the refs recorded in the lock (resolved SHAs for
+`latest` declarations), and any mismatches.
 
 ### Update a skill
 
-Change the commit SHA in your configuration:
+How an update happens depends on the selector:
 
-```toml
-[bootstrap.packages]
-# Replace the value with the new full lowercase commit SHA.
-"skills:vercel-labs/skills/find-skills" = "<new-40-character-commit-sha>"
-```
+- **Commit SHA**: Replace the value with the new full lowercase SHA, then run
+  `mise bootstrap packages apply`. The plugin detects the pin change and
+  reinstalls the skill.
+- **Git tag or branch**: Change the declared name (for example `v1.2.3` to
+  `v1.3.0`) and run `apply`. Re-declaring the same name does not re-fetch it:
+  if someone moves the tag upstream, the plugin and the lock keep the name, so
+  the installed content stays put until you declare a different SHA, tag, or
+  branch.
+- **`latest`**: Run `mise bootstrap packages upgrade --manager skills`. The
+  plugin resolves the repository's current default-branch HEAD and reinstalls
+  only when it differs from the recorded SHA. `apply` treats an already
+  installed `latest` skill as satisfied and never re-resolves it; mise's
+  "latest" declarations intentionally mean "any version".
 
-Then apply:
-
-```bash
-mise bootstrap packages apply
-```
-
-The plugin detects the version change and reinstalls the skill.
-
-`mise bootstrap packages upgrade --manager skills` also installs changed pins,
-but skips already-current ones. Neither `upgrade` nor `apply --update` is a
-force-reinstall operation; this manager has no metadata cache to refresh.
+`mise bootstrap packages upgrade --manager skills` also installs changed pins
+for SHA and tag declarations, skipping already-current ones. Neither `upgrade`
+nor `apply --update` is a force-reinstall operation; this manager has no
+metadata cache to refresh.
 
 Preview changes with `mise bootstrap packages apply --dry-run` or
-`mise bootstrap packages upgrade --dry-run`.
+`mise bootstrap packages upgrade --dry-run`. Previews of `latest` declarations
+resolve the remote HEAD read-only so the prediction is accurate; they still
+never invoke the skills CLI.
 
 ### Remove a skill
 
@@ -174,8 +200,21 @@ The plugin implements four mise hooks:
 
 1. **PackageInstalled** - Checks if a skill is already installed by reading the Vercel skills CLI's global lock file
 2. **PackageInstall** - Installs missing or outdated skills via the skills CLI
-3. **PackageUpgrade** - Receives installed requests and applies changed pins, skipping current ones
+3. **PackageUpgrade** - Receives present requests, applies changed pins, and refreshes `latest` declarations
 4. **PackageUninstall** - Rechecks ownership before removing only the packages mise supplies
+
+### Version resolution
+
+Commit SHAs and tag/branch names travel to the CLI unchanged inside the
+source URL fragment (`<url>#<ref>`); the CLI clones that ref and the lock
+records the declared value verbatim.
+
+`latest` declarations arrive from mise without a version. The plugin resolves
+them itself with one read-only `git ls-remote <url> HEAD` per repository per
+operation (including dry runs), then installs and verifies the exact resolved
+SHA. The lock and `status` therefore show a real commit SHA for `latest`
+skills. Resolution is bounded by a 60-second timeout and disables Git terminal
+prompts. Status checks and removal never resolve, so they stay offline.
 
 ### CLI invocation
 
@@ -214,9 +253,11 @@ or protection against another process changing files after inspection.
 ## Known limitations
 
 - **No content verification or forced reinstall**: Missing targets or entrypoints are repaired by `apply`, but edited file contents are not detected when the pin matches
+- **Mutable selectors**: Tags and branches can be moved upstream. The lock records the declared name, so the plugin cannot detect a moved tag without re-fetching it; re-declare a different name (or a SHA) to force the refresh. `latest` tracks the default branch only
+- **`latest` refresh requires `upgrade`**: mise treats an installed "any version" declaration as satisfied, so `apply` will not re-resolve it. Also, resolving `latest` needs Git and network access at plan time; offline runs fail resolution instead of guessing
 - **Shared-agent removal**: The CLI can retain canonical content used by another agent; prune reports incomplete removal rather than force-deleting it
 - **Lock-only leftovers**: The removal hook handles a tracked entry with missing files when supplied, but mise may already consider it missing and not call the hook; review stale entries with the skills CLI
-- **Pinned declarations only**: On mise v2026.10.25, explicit `apply skills:owner/repo/skill` arguments arrive without a version; use declarations and `--manager skills` instead
+- **Unpinned CLI arguments mean latest**: mise delivers explicit `apply skills:owner/repo/skill` arguments without a version, which this plugin treats as `latest` — even when the configuration declares a SHA or tag. Prefer declarations and `--manager skills` for predictable pins
 - **CLI contract compatibility**: Versions at or above 1.7.6 pass the version gate, but breaking changes to command flags, JSON output, or lock schema still require adapter updates
 - **GitHub only**: Currently only supports GitHub repositories (no GitLab, Bitbucket, etc.)
 - **HTTPS only**: Only supports HTTPS GitHub URLs (no SSH)
@@ -225,8 +266,10 @@ or protection against another process changing files after inspection.
 
 ### Testing
 
-On Debian/Ubuntu, first install `build-essential`, `pkg-config`,
-`libreadline-dev`, and `libncurses-dev`; mise builds Lua 5.1 from source.
+On Debian/Ubuntu, first install `build-essential`, `git`, `pkg-config`,
+`libreadline-dev`, and `libncurses-dev`; mise builds Lua 5.1 from source and
+the offline suite fakes `git ls-remote` behind a shim that forwards to the
+real executable.
 
 Install the pinned development tools, then the project-local Lua test tools:
 
@@ -241,7 +284,9 @@ mise run check
 test-harness checks, and offline integration tests. The integration suite launches
 the actual mise executable in isolated HOME/XDG directories; it does not mock
 mise's embedded runtime. The Lua fake CLI records arguments and supports failure
-injection, but does not establish upstream compatibility. Python is not required.
+injection, but does not establish upstream compatibility. A PATH shim also fakes
+only `git ls-remote ... HEAD` for `latest` resolution and forwards other Git
+subcommands to the real executable. Python is not required.
 
 The test harness uses LuaPosix for argv-based subprocesses and LuaSystem for
 monotonic timeouts. These are development-only dependencies installed by
@@ -337,13 +382,14 @@ mise-skills-plugin/
 │   ├── package.lua             # Pure package validation and batch planning
 │   ├── state.lua               # Read-only lock and filesystem adapter
 │   ├── cli.lua                 # Versioned CLI transport and JSON contract
+│   ├── git.lua                 # Read-only remote HEAD resolution for latest
 │   └── actions.lua             # Shared lifecycle operations
 ├── tests/
 │   ├── unit/                   # Lua 5.1/Busted tests
 │   ├── harness/                # Subprocess and safe-cleanup regression tests
 │   ├── integration/            # Status and lifecycle tests against real mise
 │   ├── compat/                 # Opt-in real CLI test
-│   ├── fixtures/               # Independent Lua fake skills CLI
+│   ├── fixtures/               # Lua fake skills CLI and git ls-remote shim
 │   └── support/                # Shared isolated fixture and subprocess helpers
 └── mise.toml                   # Development tools and tasks
 ```

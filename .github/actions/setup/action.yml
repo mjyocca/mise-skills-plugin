@@ -20,7 +20,7 @@ runs:
       run: |
         sudo apt-get update
         sudo apt-get install --yes --no-install-recommends \
-          build-essential pkg-config libreadline-dev libncurses-dev
+          build-essential git pkg-config libreadline-dev libncurses-dev
     # Omitting version selects the latest mise release, not a literal "latest" tag.
     - name: Set up mise
       uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3

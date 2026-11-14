@@ -171,11 +171,39 @@ describe("package status in the actual mise runtime", function()
     end)
   end
 
-  it("rejects a missing pin", function()
-    fs.write(
-      f.project .. "/mise.toml",
-      '[bootstrap.packages]\n"skills:example/skills/demo" = "latest"\n'
-    )
+  it("rejects an invalid version selector", function()
+    f.declare_version("demo", "v1..2")
+    f.status("Invalid version for")
+    assert.same({}, f.git_calls())
+  end)
+
+  it("rejects a SHA-shaped typo", function()
+    f.declare_version("demo", string.rep("a", 39))
     f.status("Expected a full 40-character lowercase commit SHA")
+  end)
+
+  it("reports a latest-declared skill from the lock without resolving", function()
+    f.declare_version("demo", "latest")
+    f.record({ ref = mise.HEAD })
+    f.install_files()
+    local package = f.status().skills.packages[1]
+    assert.equals("installed", package.state)
+    assert.equals(mise.HEAD, package.installed_version)
+    assert.same({}, f.git_calls())
+  end)
+
+  it("reports a missing latest declaration without network access", function()
+    f.declare_version("demo", "latest")
+    assert.equals("missing", f.status().skills.packages[1].state)
+    assert.same({}, f.git_calls())
+  end)
+
+  it("reports a tag-declared skill from the lock", function()
+    f.declare_version("demo", "v1.2.3")
+    f.record({ ref = "v1.2.3" })
+    f.install_files()
+    local package = f.status().skills.packages[1]
+    assert.equals("installed", package.state)
+    assert.equals("v1.2.3", package.installed_version)
   end)
 end)
