@@ -103,6 +103,13 @@ Declare skills in `[bootstrap.packages]`, then apply them:
 "skills:vercel-labs/agent-skills/frontend-design" = "latest"
 ```
 
+Select skills by canonical **name** (their `SKILL.md` `name`), not a repository
+path. A skill nested under a plugin root is still declared by name alone:
+
+```toml
+"skills:owner/repo/my-skill" = "v1.0.0"  # not "owner/repo/plugins/<product>/skills/my-skill"
+```
+
 ```bash
 mise bootstrap packages apply
 mise bootstrap packages status

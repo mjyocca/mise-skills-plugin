@@ -35,6 +35,16 @@ describe("package contract", function()
     end)
   end
 
+  it("points a repository-path declaration at the canonical name", function()
+    local ok, message = pcall(contract.parse, {
+      name = "hashicorp/agent-skills/plugins/terraform/skills/terraform-style-guide",
+      version = pin,
+    })
+    assert.is_false(ok)
+    assert.truthy(tostring(message):find("is a repository path", 1, true))
+    assert.truthy(tostring(message):find("canonical skill name", 1, true))
+  end)
+
   it('accepts "latest" as a mutable selector', function()
     local spec = contract.parse({ name = "owner/repo/demo", version = "latest" })
     assert.equals("latest", spec.kind)

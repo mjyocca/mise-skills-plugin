@@ -97,6 +97,21 @@ function M.parse(request)
   local owner, repo, skill
   if type(name) == "string" then
     owner, repo, skill = name:match("^([^/]+)/([^/]+)/([^/]+)$")
+    if not owner then
+      -- A fourth or later segment means the declaration carried a repository
+      -- path (the skills CLI's "add owner/repo/<path>" shorthand) instead of a
+      -- canonical skill name. Surface the intended form for a clearer fix.
+      local _, _, path_skill = name:match("^([^/]+)/([^/]+)/(.+)$")
+      if path_skill and path_skill:find("/") then
+        error(
+          'Invalid package name "'
+            .. name
+            .. '": "'
+            .. path_skill
+            .. '" is a repository path; use the canonical skill name instead.'
+        )
+      end
+    end
   end
   if
     not owner
