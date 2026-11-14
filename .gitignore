@@ -15,10 +15,6 @@ Thumbs.db
 # Node (for testing)
 node_modules/
 
-# Python integration test artifacts
-__pycache__/
-*.pyc
-
 # Logs
 *.log
 

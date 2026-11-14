@@ -27,10 +27,15 @@ jobs:
   # Network access and the real CLI are deliberately separate from offline tests.
   compatibility:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v3
+      - run: mise run deps:lua
       - run: mise install node@22.20.0 npm:skills@1.7.6
       - name: Verify the real CLI in a disposable HOME
         shell: bash

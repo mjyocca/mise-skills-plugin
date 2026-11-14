@@ -231,10 +231,20 @@ mise run deps:lua
 mise run check
 ```
 
-`check` runs StyLua, Luacheck, Busted under Lua 5.1, and the offline Python
-integration suite. Python drives the actual mise embedded runtime in isolated
-homes; it is not a plugin runtime dependency. The fake CLI records arguments
-and supports failure injection, but does not establish upstream compatibility.
+`check` runs StyLua, Luacheck, and three Lua 5.1/Busted suites: unit tests,
+test-harness checks, and offline integration tests. The integration suite launches
+the actual mise executable in isolated HOME/XDG directories; it does not mock
+mise's embedded runtime. The Lua fake CLI records arguments and supports failure
+injection, but does not establish upstream compatibility. Python is not required.
+
+The test harness uses LuaPosix for argv-based subprocesses and LuaSystem for
+monotonic timeouts. These are development-only dependencies installed by
+`deps:lua`; building them requires a C compiler and make. Subprocesses have clean
+environments and separate output capture, and timeouts terminate their process
+groups. Fixture cleanup unlinks symlinks without following them.
+
+Run suites individually with `mise run test:unit`, `mise run test:harness`, or
+`mise run test:integration`. Run these commands from the repository root.
 
 The optional real-CLI test needs Node and skills 1.7.6 installed. It fetches a
 skill from the CLI's immutable source revision and exercises install, status,
@@ -244,9 +254,10 @@ upgrade, dry runs, and prune in a disposable home:
 SKILLS_CLI_TEST_BIN="$(mise exec npm:skills@1.7.6 -- which skills)" mise run test:compat
 ```
 
-`test:compat` skips unless `SKILLS_CLI_TEST_BIN` names an installed executable.
+`test:compat` skips when `SKILLS_CLI_TEST_BIN` is unset or empty. When set, it must
+be an absolute path to an executable; an invalid path fails the test.
 CI checks Linux/macOS with the minimum and latest mise versions; a manual CI
-run also exercises the network compatibility test.
+run also exercises the network compatibility test on both platforms.
 
 To try a working copy manually, link it in a disposable mise environment with
 `mise plugins link skills /absolute/path/to/mise-skills-plugin`. Use throwaway
@@ -271,9 +282,11 @@ mise-skills-plugin/
 │   └── actions.lua             # Shared lifecycle operations
 ├── tests/
 │   ├── unit/                   # Lua 5.1/Busted tests
+│   ├── harness/                # Subprocess and safe-cleanup regression tests
+│   ├── integration/            # Status and lifecycle tests against real mise
 │   ├── compat/                 # Opt-in real CLI test
-│   ├── test_status.py          # Real mise status integration tests
-│   └── test_actions.py         # Real mise action integration tests
+│   ├── fixtures/               # Independent Lua fake skills CLI
+│   └── support/                # Shared isolated fixture and subprocess helpers
 └── mise.toml                   # Development tools and tasks
 ```
 

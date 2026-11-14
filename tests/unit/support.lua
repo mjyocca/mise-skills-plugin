@@ -1,4 +1,4 @@
--- Minimal adapters for pure/unit tests; real mise module behavior is tested in Python.
+-- Minimal unit adapters; integration tests exercise the actual mise runtime.
 local json = require("dkjson")
 local stub = require("luassert.stub")
 local M = {}
