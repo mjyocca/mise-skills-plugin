@@ -264,16 +264,18 @@ SKILLS_CLI_TEST_BIN="$(mise exec npm:skills@1.7.6 -- which skills)" mise run tes
 be an absolute path to an executable; an invalid path fails the test.
 Offline CI runs once per pull request update on `ubuntu-slim` with the latest
 mise release. Branch pushes do not trigger CI. The separate **Compatibility**
-workflow uses the same runner and mise release, with a skills CLI version matrix
-of **1.7.6** (the minimum) and **latest**. Both matrix entries are blocking within
-that workflow; latest is not an allowed-to-fail canary.
+workflow uses the same runner and mise release. One job installs Node and both
+skills versions, **1.7.6** (the minimum) and **latest**, in a single setup. It then
+runs two test processes concurrently with isolated HOME/XDG directories. Both
+results must pass; latest is not an allowed-to-fail canary. Per-version logs and
+a job summary report both results, even if one suite fails.
 
 Both workflows call `.github/actions/setup`, a composite action that installs
 the system build packages, mise, and Lua test tools in the current job. Its
-optional `skills-version` input also installs Node and the requested skills CLI,
-exposes Node on `PATH`, and returns the CLI path as `skills-cli-bin`. Checkout
-and approval gating stay in the workflows; a separate setup job would not share
-its installed tools with other runners.
+optional `skills-versions` input accepts a space-separated list, installs Node
+and the requested CLIs, exposes Node on `PATH`, and returns a JSON map of CLI
+paths as `skills-cli-bins`. Checkout and approval gating stay in the workflows;
+a separate setup job would not share its installed tools with other runners.
 
 `ubuntu-slim` is a single-CPU hosted container, not a full VM. Jobs have a
 12-minute timeout, below the runner's 15-minute limit. External actions are
@@ -285,7 +287,7 @@ Lua builds must fit within the timeout.
 - For contributor PRs, the repository owner submits an **Approve** PR review to
   start compatibility tests. The review must cover the PR's current head commit;
   tests check out that exact SHA. Comments and other reviewers' approvals do not
-  start the matrix. New commits require another approving review.
+  start the compatibility job. New commits require another approving review.
 - As a fallback, the owner can manually run **Compatibility** and supply its
   `pr_number`. This tests the PR's current merge ref. Leaving the input blank
   tests the selected branch's event SHA instead.

@@ -27,10 +27,6 @@ jobs:
        github.event.review.user.login == github.repository_owner &&
        github.event.review.commit_id == github.event.pull_request.head.sha) ||
       (github.event_name == 'workflow_dispatch' && github.actor == github.repository_owner)
-    strategy:
-      fail-fast: false
-      matrix:
-        skills: ["1.7.6", "latest"]
     runs-on: ubuntu-slim
     timeout-minutes: 12
     steps:
@@ -42,8 +38,8 @@ jobs:
       - uses: ./.github/actions/setup
         id: setup
         with:
-          skills-version: ${{ matrix.skills }}
-      - name: Verify the real CLI in a disposable HOME
+          skills-versions: "1.7.6 latest"
+      - name: Verify both CLI versions concurrently in disposable homes
         env:
-          SKILLS_CLI_TEST_BIN: ${{ steps.setup.outputs.skills-cli-bin }}
-        run: mise run test:compat
+          SKILLS_CLI_BINS: ${{ steps.setup.outputs.skills-cli-bins }}
+        run: bash .github/scripts/test-compatibility.sh

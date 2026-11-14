@@ -1,16 +1,16 @@
 name: Set up test environment
-description: Install mise and Lua test tools, optionally with Node and a skills CLI release.
+description: Install mise and Lua test tools, optionally with Node and skills CLI releases.
 
 inputs:
-  skills-version:
-    description: Skills CLI version or dist-tag; leave empty for offline tests.
+  skills-versions:
+    description: Space-separated skills CLI versions or dist-tags; empty for offline tests.
     required: false
     default: ""
 
 outputs:
-  skills-cli-bin:
-    description: Absolute skills executable path, empty when no CLI was requested.
-    value: ${{ steps.skills.outputs.bin }}
+  skills-cli-bins:
+    description: JSON map of requested versions to executable paths, empty when not requested.
+    value: ${{ steps.skills.outputs.bins }}
 
 runs:
   using: composite
@@ -27,17 +27,28 @@ runs:
     - name: Install Lua test tools
       shell: bash
       run: mise run deps:lua
-    - name: Install skills CLI
+    - name: Install skills CLIs
       id: skills
-      if: inputs.skills-version != ''
+      if: inputs.skills-versions != ''
       shell: bash
       env:
-        SKILLS_CLI_VERSION: ${{ inputs.skills-version }}
+        SKILLS_CLI_VERSIONS: ${{ inputs.skills-versions }}
         NODE_VERSION: "22.20.0"
       run: |
-        mise install "node@$NODE_VERSION" "npm:skills@$SKILLS_CLI_VERSION"
-        skills_bin="$(mise exec "node@$NODE_VERSION" "npm:skills@$SKILLS_CLI_VERSION" -- bash -c 'command -v skills')"
+        read -r -a versions <<< "$SKILLS_CLI_VERSIONS"
+        tools=("node@$NODE_VERSION")
+        for version in "${versions[@]}"; do
+          tools+=("npm:skills@$version")
+        done
+        mise install "${tools[@]}"
+        bins='{}'
+        for version in "${versions[@]}"; do
+          skills_bin="$(mise exec "node@$NODE_VERSION" "npm:skills@$version" -- bash -c 'command -v skills')"
+          bins="$(jq -cn --argjson bins "$bins" --arg version "$version" --arg bin "$skills_bin" \
+            '$bins + {($version): $bin}')"
+          printf 'skills %s: ' "$version"
+          mise exec "node@$NODE_VERSION" -- "$skills_bin" --version
+        done
+        printf 'bins=%s\n' "$bins" >> "$GITHUB_OUTPUT"
         node_bin="$(mise exec "node@$NODE_VERSION" -- bash -c 'command -v node')"
-        printf 'bin=%s\n' "$skills_bin" >> "$GITHUB_OUTPUT"
         dirname "$node_bin" >> "$GITHUB_PATH"
-        mise exec "node@$NODE_VERSION" -- "$skills_bin" --version
