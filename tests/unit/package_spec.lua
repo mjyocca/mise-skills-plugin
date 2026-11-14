@@ -139,6 +139,13 @@ describe("package contract", function()
     end)
   end)
 
+  it("refuses to resolve a spec that is not latest", function()
+    local spec = contract.parse({ name = "owner/repo/demo", version = pin })
+    assert.has_error(function()
+      contract.resolved(spec, pin)
+    end)
+  end)
+
   it("rejects collisions before returning a batch", function()
     assert.has_error(function()
       contract.parse_batch({

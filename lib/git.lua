@@ -9,7 +9,14 @@ local TIMEOUT = 60
 -- `git ls-remote <url> HEAD` prints exactly one "<sha>\tHEAD" line on success.
 function M.resolve_head(url)
   local ok, output = pcall(cmd.exec, 'git ls-remote "$GIT_REMOTE_URL" HEAD', {
-    env = { GIT_REMOTE_URL = url, GIT_TERMINAL_PROMPT = "0" },
+    env = {
+      GIT_REMOTE_URL = url,
+      -- Refuse interactive terminal and credential prompts, and override any
+      -- configured core.askPass/SSH_ASKPASS so a private repo fails fast
+      -- instead of hanging on a password the hook can never supply.
+      GIT_TERMINAL_PROMPT = "0",
+      GIT_ASKPASS = "true",
+    },
     timeout = TIMEOUT,
   })
   if not ok then

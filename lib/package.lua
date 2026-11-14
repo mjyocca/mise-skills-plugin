@@ -16,6 +16,9 @@ local M = {}
 
 M.LATEST = "latest"
 
+-- Only a 40-character lowercase SHA-1 hex counts as a commit pin. The SHA-256
+-- object format (64 hex) is not a Git default and is intentionally unsupported;
+-- this matches the skills CLI's own ref detection (/^[0-9a-f]{40}$/i).
 function M.is_pin(value)
   return type(value) == "string" and #value == 40 and value:match("^[0-9a-f]+$") ~= nil
 end
@@ -126,6 +129,9 @@ end
 ---@param pin string Full 40-character lowercase commit SHA
 ---@return SkillSpec
 function M.resolved(spec, pin)
+  if spec.kind ~= "latest" then
+    error("Only a 'latest' spec can be resolved: " .. spec.name)
+  end
   if not M.is_pin(pin) then
     error("Resolved latest is not a full lowercase commit SHA for " .. spec.name)
   end

@@ -21,6 +21,7 @@ describe("git transport", function()
     assert.equals('git ls-remote "$GIT_REMOTE_URL" HEAD', call.command)
     assert.equals(url, call.options.env.GIT_REMOTE_URL)
     assert.equals("0", call.options.env.GIT_TERMINAL_PROMPT)
+    assert.equals("true", call.options.env.GIT_ASKPASS)
     assert.equals(60, call.options.timeout)
   end)
 
