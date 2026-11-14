@@ -24,7 +24,7 @@ description = "Check subprocess timeouts, output capture, and safe fixture clean
 run = ".mise/rocks/bin/busted tests/harness"
 
 [tasks."test:compat"]
-description = "Opt-in network tests; set SKILLS_CLI_TEST_BIN to skills 1.7.6"
+description = "Opt-in network tests; set SKILLS_CLI_TEST_BIN to skills >= 1.7.6"
 run = ".mise/rocks/bin/busted tests/compat"
 
 [tasks.test]

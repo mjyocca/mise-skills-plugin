@@ -1,0 +1,43 @@
+name: Set up test environment
+description: Install mise and Lua test tools, optionally with Node and a skills CLI release.
+
+inputs:
+  skills-version:
+    description: Skills CLI version or dist-tag; leave empty for offline tests.
+    required: false
+    default: ""
+
+outputs:
+  skills-cli-bin:
+    description: Absolute skills executable path, empty when no CLI was requested.
+    value: ${{ steps.skills.outputs.bin }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Lua build dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends \
+          build-essential pkg-config libreadline-dev libncurses-dev
+    # Omitting version selects the latest mise release, not a literal "latest" tag.
+    - name: Set up mise
+      uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+    - name: Install Lua test tools
+      shell: bash
+      run: mise run deps:lua
+    - name: Install skills CLI
+      id: skills
+      if: inputs.skills-version != ''
+      shell: bash
+      env:
+        SKILLS_CLI_VERSION: ${{ inputs.skills-version }}
+        NODE_VERSION: "22.20.0"
+      run: |
+        mise install "node@$NODE_VERSION" "npm:skills@$SKILLS_CLI_VERSION"
+        skills_bin="$(mise exec "node@$NODE_VERSION" "npm:skills@$SKILLS_CLI_VERSION" -- bash -c 'command -v skills')"
+        node_bin="$(mise exec "node@$NODE_VERSION" -- bash -c 'command -v node')"
+        printf 'bin=%s\n' "$skills_bin" >> "$GITHUB_OUTPUT"
+        dirname "$node_bin" >> "$GITHUB_PATH"
+        mise exec "node@$NODE_VERSION" -- "$skills_bin" --version

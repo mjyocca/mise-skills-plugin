@@ -22,14 +22,39 @@ describe("skills CLI adapter", function()
     f.restore()
   end)
 
-  it("checks exactly the supported version", function()
-    cli.check_version()
-    assert.equals("skills --version", f.commands[1].command)
-    f.exec = function()
-      return "9.0.0\n"
-    end
-    assert.has_error(cli.check_version)
-  end)
+  for _, version in ipairs({ "1.7.6", "1.7.7", "1.8.1", "1.10.0", "2.0.0", "10.0.0" }) do
+    it("accepts stable version " .. version .. " at or above the minimum", function()
+      f.exec = function()
+        return version .. "\n"
+      end
+      cli.check_version()
+      assert.equals("skills --version", f.commands[1].command)
+    end)
+  end
+
+  for _, version in ipairs({
+    "0.99.99",
+    "1.6.99",
+    "1.7.5",
+    "",
+    "latest",
+    "v1.7.6",
+    "1.7",
+    "1.7.6.1",
+    "1.8.0-beta.1",
+    "1.7.6+build",
+    "01.7.6",
+    "1.07.6",
+    "1.7.06",
+    "1.7.6\nnoise",
+  }) do
+    it("rejects unsupported or malformed version " .. string.format("%q", version), function()
+      f.exec = function()
+        return version .. "\n"
+      end
+      assert.has_error(cli.check_version)
+    end)
+  end
 
   it("passes values through env and bounds commands with a timeout", function()
     f.exec = function()

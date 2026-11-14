@@ -49,7 +49,7 @@ mise bootstrap packages apply
 
 - [mise](https://mise.jdx.dev/) (v2026.10.25 or later)
 - Node.js v22.20.0 or later
-- The Vercel skills CLI **exactly v1.7.6**, available on the hook's `PATH`
+- The Vercel skills CLI **v1.7.6 or newer**, available on the hook's `PATH`
 - Git, for the skills CLI's clone fallback
 
 Skills are installed globally as copies in `~/.agents/skills`, using the CLI's
@@ -182,8 +182,11 @@ The plugin implements four mise hooks:
 The plugin invokes `skills` through the hook's `PATH`. Package-manager hooks
 retain mise's shims and global tool paths; the plugin does not depend on mise's
 internal npm installation layout. It checks `skills --version` before the first
-mutation and refuses any version other than 1.7.6. Status and dry runs do not
-probe the CLI version.
+mutation and requires a stable `x.y.z` release at or above 1.7.6. Prerelease,
+build-suffixed, and malformed version strings are rejected. Status and dry runs
+do not probe the CLI version. The examples pin the minimum version for
+reproducibility; newer releases still have to satisfy the JSON, lock, and
+filesystem contracts below.
 
 Requests sharing a source and pin use one `skills add` call with multiple
 `--skill` names. Commands use quoted environment variables, disable telemetry
@@ -214,13 +217,16 @@ or protection against another process changing files after inspection.
 - **Shared-agent removal**: The CLI can retain canonical content used by another agent; prune reports incomplete removal rather than force-deleting it
 - **Lock-only leftovers**: The removal hook handles a tracked entry with missing files when supplied, but mise may already consider it missing and not call the hook; review stale entries with the skills CLI
 - **Pinned declarations only**: On mise v2026.10.25, explicit `apply skills:owner/repo/skill` arguments arrive without a version; use declarations and `--manager skills` instead
-- **Exact CLI compatibility**: A CLI upgrade requires updating and testing the adapter, not just changing `[tools]`
+- **CLI contract compatibility**: Versions at or above 1.7.6 pass the version gate, but breaking changes to command flags, JSON output, or lock schema still require adapter updates
 - **GitHub only**: Currently only supports GitHub repositories (no GitLab, Bitbucket, etc.)
 - **HTTPS only**: Only supports HTTPS GitHub URLs (no SSH)
 
 ## Development
 
 ### Testing
+
+On Debian/Ubuntu, first install `build-essential`, `pkg-config`,
+`libreadline-dev`, and `libncurses-dev`; mise builds Lua 5.1 from source.
 
 Install the pinned development tools, then the project-local Lua test tools:
 
@@ -246,7 +252,7 @@ groups. Fixture cleanup unlinks symlinks without following them.
 Run suites individually with `mise run test:unit`, `mise run test:harness`, or
 `mise run test:integration`. Run these commands from the repository root.
 
-The optional real-CLI test needs Node and skills 1.7.6 installed. It fetches a
+The optional real-CLI test needs Node and skills >= 1.7.6 installed. It fetches a
 skill from the CLI's immutable source revision and exercises install, status,
 upgrade, dry runs, and prune in a disposable home:
 
@@ -256,8 +262,52 @@ SKILLS_CLI_TEST_BIN="$(mise exec npm:skills@1.7.6 -- which skills)" mise run tes
 
 `test:compat` skips when `SKILLS_CLI_TEST_BIN` is unset or empty. When set, it must
 be an absolute path to an executable; an invalid path fails the test.
-CI checks Linux/macOS with the minimum and latest mise versions; a manual CI
-run also exercises the network compatibility test on both platforms.
+Offline CI runs once per pull request update on `ubuntu-slim` with the latest
+mise release. Branch pushes do not trigger CI. The separate **Compatibility**
+workflow uses the same runner and mise release, with a skills CLI version matrix
+of **1.7.6** (the minimum) and **latest**. Both matrix entries are blocking within
+that workflow; latest is not an allowed-to-fail canary.
+
+Both workflows call `.github/actions/setup`, a composite action that installs
+the system build packages, mise, and Lua test tools in the current job. Its
+optional `skills-version` input also installs Node and the requested skills CLI,
+exposes Node on `PATH`, and returns the CLI path as `skills-cli-bin`. Checkout
+and approval gating stay in the workflows; a separate setup job would not share
+its installed tools with other runners.
+
+`ubuntu-slim` is a single-CPU hosted container, not a full VM. Jobs have a
+12-minute timeout, below the runner's 15-minute limit. External actions are
+pinned to commit SHAs, and mise manages tool caching. Cold-cache setup and native
+Lua builds must fit within the timeout.
+
+- Owner-authored PRs run compatibility tests automatically on opening, reopening,
+  and new commits. These runs test the event's merge commit.
+- For contributor PRs, the repository owner submits an **Approve** PR review to
+  start compatibility tests. The review must cover the PR's current head commit;
+  tests check out that exact SHA. Comments and other reviewers' approvals do not
+  start the matrix. New commits require another approving review.
+- As a fallback, the owner can manually run **Compatibility** and supply its
+  `pr_number`. This tests the PR's current merge ref. Leaving the input blank
+  tests the selected branch's event SHA instead.
+
+To configure GitHub:
+
+1. Merge the workflow files into the default branch so manual runs are available.
+2. Under **Settings → Actions → General**, consider **Require approval for all
+   external contributors**. This repository-level policy gates entire fork
+   workflows, including offline tests; approving a PR review does not replace
+   GitHub's separate **Approve and run** action when that approval is required.
+3. In the default branch's ruleset or branch protection, require the offline
+   **CI** check named `check`. Replace any old OS/mise matrix check requirements
+   with this single check. Leave compatibility checks optional unless you also
+   design a required-check gate that handles their intentionally skipped runs.
+4. Optionally enable **Dismiss stale pull request approvals when new commits are
+   pushed** to keep merge approval aligned with reviewed code.
+
+The workflow's owner conditions control normal CI execution, not protection
+against a PR rewriting its workflow. Use GitHub's fork approval policy for that
+additional gate. Both workflows use read-only tokens and do not persist checkout
+credentials; no environment or deployment approval setup is needed.
 
 To try a working copy manually, link it in a disposable mise environment with
 `mise plugins link skills /absolute/path/to/mise-skills-plugin`. Use throwaway
@@ -324,8 +374,11 @@ mise exec -- skills --version
 mise which skills
 ```
 
-The expected version is exactly `1.7.6`. If a different executable shadows it on
-`PATH`, correct the tool configuration or shell environment before applying.
+The expected version is a stable `x.y.z` release at or above `1.7.6`. If an older
+or prerelease executable shadows it on `PATH`, correct the tool configuration or
+shell environment before applying. A newer version that fails JSON or lock
+validation needs a contract review; pin a previously verified release while
+investigating.
 
 ## License
 

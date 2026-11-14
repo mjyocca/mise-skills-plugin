@@ -7,9 +7,9 @@ local CLI = os.getenv("SKILLS_CLI_TEST_BIN")
 -- A skill shipped in the CLI's own immutable v1.7.6 source tree.
 local REVISION = "7a5e920bead4b1039a6d6df5d7e1163b7b09423a"
 
-describe("real skills 1.7.6 compatibility", function()
+describe("real skills CLI compatibility", function()
   if not CLI or CLI == "" then
-    pending("set SKILLS_CLI_TEST_BIN to skills 1.7.6 to enable network tests")
+    pending("set SKILLS_CLI_TEST_BIN to skills >= 1.7.6 to enable network tests")
     return
   end
 

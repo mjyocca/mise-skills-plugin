@@ -4,7 +4,7 @@ local json = require("json")
 local state = require("lib.state")
 
 -- JSON reports display names ("Codex"), whereas command flags take IDs ("codex").
-local M = { VERSION = "1.7.6", AGENT = "codex", AGENT_LABEL = "Codex" }
+local M = { MIN_VERSION = "1.7.6", AGENT = "codex", AGENT_LABEL = "Codex" }
 local TIMEOUT = 120
 
 local function exec(command, env)
@@ -18,11 +18,46 @@ local function exec(command, env)
   return output
 end
 
+-- Stable release versions only: compare numeric components, never strings.
+local function parse_version(version)
+  local major, minor, patch = version:match("^(%d+)%.(%d+)%.(%d+)$")
+  if not major then
+    return nil
+  end
+  local parts = { major, minor, patch }
+  for i, part in ipairs(parts) do
+    if #part > 1 and part:sub(1, 1) == "0" then
+      return nil
+    end
+    parts[i] = tonumber(part)
+  end
+  return parts
+end
+
+local function supported_version(version)
+  local installed, minimum = parse_version(version), parse_version(M.MIN_VERSION)
+  if not installed then
+    return false
+  end
+  for i = 1, 3 do
+    if installed[i] ~= minimum[i] then
+      return installed[i] > minimum[i]
+    end
+  end
+  return true
+end
+
 function M.check_version()
   local output = exec("skills --version")
   local version = output:match("^%s*(.-)%s*$")
-  if version ~= M.VERSION then
-    error("Unsupported skills CLI version " .. version .. "; expected " .. M.VERSION .. " on PATH")
+  if not supported_version(version) then
+    error(
+      "Unsupported skills CLI version "
+        .. version
+        .. "; expected a stable x.y.z release >= "
+        .. M.MIN_VERSION
+        .. " on PATH"
+    )
   end
 end
 

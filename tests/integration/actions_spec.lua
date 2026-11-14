@@ -115,10 +115,19 @@ describe("package actions in the actual mise runtime", function()
   end)
 
   it("rejects incompatible CLI versions before mutation", function()
-    f.env.SKILLS_TEST_VERSION = "9.0.0"
+    f.env.SKILLS_TEST_VERSION = "1.7.5"
     f.run({ "apply" }, "Unsupported skills CLI version")
     assert.same({}, f.calls())
   end)
+
+  for _, version in ipairs({ "1.7.6", "1.8.1", "1.10.0", "2.0.0" }) do
+    it("accepts a compatible CLI at or above the minimum: " .. version, function()
+      f.env.SKILLS_TEST_VERSION = version
+      f.action("apply")
+      installed()
+      assert.equals(1, #f.calls())
+    end)
+  end
 
   local modes = {
     { "invalid", "Invalid skills add JSON" },
