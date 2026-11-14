@@ -29,8 +29,11 @@ that tag before you publish the release, but only after all validation passes.
 ## Prepare and validate
 
 1. Update the string in `version.lua`, for example from `0.1.0` to `0.2.0`,
-   and add a matching entry to `CHANGELOG.md`. Use a stable `x.y.z` version
-   without leading zeros or the `v` tag prefix.
+   and add a matching entry to `CHANGELOG.md`. Use an `x.y.z` version with no
+   leading zeros or the `v` tag prefix. We use semver-style numbering as a
+   label rather than a strict contract; the changelog's **Fixes**,
+   **Enhancements**, and **Breaking Changes** sections describe what a release
+   contains.
 2. Run `mise run check`, open a release-preparation PR, and merge it into `main`.
 3. Open **Actions → Prepare release → Run workflow**. Select **main**, then
    click **Run workflow**. There is no version input: the action reads
@@ -87,7 +90,7 @@ updated `main`.
 This bypasses the action's validation and concurrency guard. Use it only when
 you deliberately need a manual release. From a clean checkout of the intended
 release commit, run `mise run check` and the
-[real-CLI compatibility tests](../README.md#testing) with both skills 1.7.6 and
+[real-CLI compatibility tests](development.md#testing) with both skills 1.7.6 and
 latest. Then create the tag and draft. These commands require push access and
 an authenticated GitHub CLI account with permission to create releases. Stop
 if any command fails.
